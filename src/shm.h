@@ -7,7 +7,7 @@
 #include "screen.h"
 
 #define SHM_MAGIC 0x74736F66u
-#define SHM_VERSION 3
+#define SHM_VERSION 4
 
 struct shm_head {
 	uint32_t magic, version;
@@ -17,6 +17,8 @@ struct shm_head {
 	uint8_t alt, pending, cursor_visible, cursor_shape, cursor_blink;
 	uint8_t reverse, sync, focus_events;
 	uint8_t keys, app_cursor, newline, bracketed_paste;
+	uint16_t mouse;
+	uint8_t mouse_sgr, mouse_pixels, alt_scroll;
 	uint32_t palette[259];
 	uint8_t palette_set[259];
 };

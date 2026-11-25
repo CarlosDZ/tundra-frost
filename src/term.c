@@ -149,6 +149,9 @@ static void publish(int all) {
 	h->keys = (uint8_t)(g->nkeys ? g->keys[g->nkeys - 1] : 0);
 	h->app_cursor = (uint8_t)s->app_cursor, h->newline = (uint8_t)s->newline;
 	h->bracketed_paste = (uint8_t)s->bracketed_paste;
+	h->mouse = (uint16_t)s->mouse, h->mouse_sgr = (uint8_t)s->mouse_sgr;
+	h->mouse_pixels = (uint8_t)s->mouse_pixels;
+	h->alt_scroll = (uint8_t)s->alt_scroll;
 	memcpy(h->palette, s->palette, sizeof(h->palette));
 	memcpy(h->palette_set, s->palette_set, sizeof(h->palette_set));
 	__atomic_store_n(&h->seq, h->seq + 1, __ATOMIC_RELEASE);

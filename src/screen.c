@@ -430,7 +430,7 @@ static void full_reset(struct scr *s) {
 	}
 	s->x = s->y = s->pending = 0;
 	s->reverse = 0, s->bracketed_paste = 0, s->focus_events = 0;
-	s->alt_scroll = 0, s->sync = 0, s->mouse = 0, s->mouse_sgr = 0;
+	s->alt_scroll = 1, s->sync = 0, s->mouse = 0, s->mouse_sgr = 0;
 	s->mouse_pixels = 0;
 	s->cursor_shape = CURSOR_DEFAULT, s->cursor_blink = 1;
 	memset(s->palette_set, 0, sizeof(s->palette_set));

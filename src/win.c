@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/input-event-codes.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -14,8 +15,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <wayland-client.h>
+#include <wayland-cursor.h>
 
 #include "kbd.h"
+#include "mouse.h"
 #include "proto.h"
 #include "render.h"
 #include "shm.h"
@@ -26,6 +29,8 @@
 #define BLINK_MS 500
 #define DEFAULT_COLS 80
 #define DEFAULT_ROWS 24
+#define WHEEL_LINES 3
+#define CURSOR_SIZE 24
 
 struct buffer {
 	struct wl_buffer *wl;
@@ -47,6 +52,16 @@ static struct win {
 	struct xdg_toplevel *top;
 	struct wl_seat *seat;
 	struct wl_keyboard *keyboard;
+	struct wl_pointer *pointer;
+	struct wl_cursor_theme *cursor_theme;
+	struct wl_surface *cursor_surf;
+	const char *cursor_now;
+	uint32_t enter_serial;
+	double px, py;
+	int held;
+	int last_x, last_y;
+	double scroll;
+	int value120, discrete, finger;
 
 	int next_w, next_h, next_focus, configured, focused;
 	struct buffer buf[2], *shown;
@@ -85,7 +100,7 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
 		w.wm = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
 	else if (strcmp(iface, wl_seat_interface.name) == 0 && !w.seat)
 		w.seat = wl_registry_bind(reg, name, &wl_seat_interface,
-		                          version < 5 ? version : 5);
+		                          version < 8 ? version : 8);
 	else if (strcmp(iface, zxdg_decoration_manager_v1_interface.name) == 0)
 		w.deco_mgr = wl_registry_bind(reg, name,
 		                              &zxdg_decoration_manager_v1_interface, 1);
@@ -397,6 +412,203 @@ static void kb_repeat_info(void *data, struct wl_keyboard *kb, int32_t rate,
 static const struct wl_keyboard_listener keyboard_listener = {
     kb_keymap, kb_enter, kb_leave, kb_key, kb_modifiers, kb_repeat_info};
 
+static void set_cursor(void) {
+	const struct shm_head *h = head();
+	const char *name = h && h->mouse ? "default" : "text";
+	if (!w.pointer || !w.cursor_theme || !w.enter_serial ||
+	    name == w.cursor_now)
+		return;
+	struct wl_cursor *c = wl_cursor_theme_get_cursor(w.cursor_theme, name);
+	if (!c)
+		c = wl_cursor_theme_get_cursor(w.cursor_theme,
+		                               h && h->mouse ? "left_ptr" : "xterm");
+	struct wl_buffer *b = c ? wl_cursor_image_get_buffer(c->images[0]) : NULL;
+	if (!b)
+		return;
+	wl_surface_attach(w.cursor_surf, b, 0, 0);
+	wl_surface_damage_buffer(w.cursor_surf, 0, 0, INT32_MAX, INT32_MAX);
+	wl_surface_commit(w.cursor_surf);
+	wl_pointer_set_cursor(w.pointer, w.enter_serial, w.cursor_surf,
+	                      (int32_t)c->images[0]->hotspot_x,
+	                      (int32_t)c->images[0]->hotspot_y);
+	w.cursor_now = name;
+}
+
+static void pointer_at(struct mouse_event *e) {
+	int gw = w.cols * w.r.cw, gh = w.rows * w.r.ch;
+	int x = (int)w.px - w.r.ox, y = (int)w.py - w.r.oy;
+	e->x = x < 0 ? 0 : x >= gw ? gw - 1 : x;
+	e->y = y < 0 ? 0 : y >= gh ? gh - 1 : y;
+	e->col = e->x / w.r.cw, e->row = e->y / w.r.ch;
+}
+
+static int report(enum mouse_kind kind, int button) {
+	const struct shm_head *h = head();
+	if (!h || !h->mouse)
+		return 0;
+	struct mouse_event e = {kind, button, kbd_mods(&w.kbd), 0, 0, 0, 0};
+	if (e.mods & MOD_SHIFT)
+		return 0;
+	pointer_at(&e);
+	struct mouse_modes m = {h->mouse, h->mouse_sgr, h->mouse_pixels};
+	char out[MOUSE_OUT_MAX];
+	size_t n = mouse_encode(&e, &m, out);
+	input(out, n);
+	return 1;
+}
+
+static void ptr_enter(void *data, struct wl_pointer *p, uint32_t serial,
+                      struct wl_surface *s, wl_fixed_t x, wl_fixed_t y) {
+	(void)data, (void)p, (void)s;
+	w.enter_serial = serial;
+	w.px = wl_fixed_to_double(x), w.py = wl_fixed_to_double(y);
+	w.cursor_now = NULL;
+	set_cursor();
+}
+
+static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
+                      struct wl_surface *s) {
+	(void)data, (void)p, (void)serial, (void)s;
+	w.enter_serial = 0;
+	w.held = MB_NONE;
+}
+
+static void ptr_motion(void *data, struct wl_pointer *p, uint32_t time,
+                       wl_fixed_t x, wl_fixed_t y) {
+	(void)data, (void)p, (void)time;
+	w.px = wl_fixed_to_double(x), w.py = wl_fixed_to_double(y);
+	set_cursor();
+	const struct shm_head *h = head();
+	struct mouse_event e;
+	pointer_at(&e);
+	int px = h && h->mouse_pixels;
+	int at_x = px ? e.x : e.col, at_y = px ? e.y : e.row;
+	if (at_x != w.last_x || at_y != w.last_y) {
+		w.last_x = at_x, w.last_y = at_y;
+		report(MOUSE_MOVE, w.held);
+	}
+}
+
+static int button_of(uint32_t b) {
+	switch (b) {
+	case BTN_LEFT:
+		return MB_LEFT;
+	case BTN_MIDDLE:
+		return MB_MIDDLE;
+	case BTN_RIGHT:
+		return MB_RIGHT;
+	case BTN_SIDE:
+		return MB_BACK;
+	case BTN_EXTRA:
+		return MB_FORWARD;
+	}
+	return -1;
+}
+
+static void ptr_button(void *data, struct wl_pointer *p, uint32_t serial,
+                       uint32_t time, uint32_t button, uint32_t state) {
+	(void)data, (void)p, (void)serial, (void)time;
+	int b = button_of(button);
+	if (b < 0)
+		return;
+	if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+		w.held = b;
+		report(MOUSE_DOWN, b);
+	} else {
+		report(MOUSE_UP, b);
+		if (w.held == b)
+			w.held = MB_NONE;
+	}
+}
+
+static void ptr_axis(void *data, struct wl_pointer *p, uint32_t time,
+                     uint32_t axis, wl_fixed_t value) {
+	(void)data, (void)p, (void)time;
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		w.scroll += wl_fixed_to_double(value);
+}
+
+static void ptr_axis_source(void *data, struct wl_pointer *p, uint32_t src) {
+	(void)data, (void)p;
+	w.finger = src != WL_POINTER_AXIS_SOURCE_WHEEL;
+}
+
+static void ptr_axis_stop(void *data, struct wl_pointer *p, uint32_t time,
+                          uint32_t axis) {
+	(void)data, (void)p, (void)time;
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		w.scroll = 0;
+}
+
+static void ptr_axis_discrete(void *data, struct wl_pointer *p, uint32_t axis,
+                              int32_t discrete) {
+	(void)data, (void)p;
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		w.discrete += discrete;
+}
+
+static void ptr_axis_value120(void *data, struct wl_pointer *p, uint32_t axis,
+                              int32_t value120) {
+	(void)data, (void)p;
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		w.value120 += value120;
+}
+
+static void ptr_axis_direction(void *data, struct wl_pointer *p, uint32_t axis,
+                               uint32_t direction) {
+	(void)data, (void)p, (void)axis, (void)direction;
+}
+
+static void ptr_frame(void *data, struct wl_pointer *p) {
+	(void)data, (void)p;
+	int notches = 0, lines = 0;
+	if (w.value120 / 120) {
+		notches = w.value120 / 120;
+		w.value120 -= notches * 120;
+		lines = notches * WHEEL_LINES;
+		w.scroll = 0;
+	} else if (w.discrete) {
+		notches = w.discrete;
+		lines = notches * WHEEL_LINES;
+		w.discrete = 0, w.scroll = 0;
+	} else if (w.finger && w.r.ch > 0) {
+		lines = (int)(w.scroll / w.r.ch);
+		w.scroll -= lines * w.r.ch;
+		notches = lines;
+	}
+	if (!lines)
+		return;
+	const struct shm_head *h = head();
+	if (!h)
+		return;
+	int down = lines > 0;
+	if (h->mouse) {
+		for (int i = 0; i < abs(notches); i++)
+			report(MOUSE_WHEEL, down ? MB_WHEEL_DOWN : MB_WHEEL_UP);
+	} else if (h->alt && h->alt_scroll) {
+		struct key k = {down ? FKEY_DOWN : FKEY_UP, 0, 0, 0, KEY_PRESS, ""};
+		struct key_modes m = {h->keys, h->app_cursor, h->newline};
+		char out[KEY_OUT_MAX];
+		size_t n = key_encode(&k, &m, out);
+		for (int i = 0; i < abs(lines); i++)
+			input(out, n);
+	}
+}
+
+static const struct wl_pointer_listener pointer_listener = {
+    .enter = ptr_enter,
+    .leave = ptr_leave,
+    .motion = ptr_motion,
+    .button = ptr_button,
+    .axis = ptr_axis,
+    .frame = ptr_frame,
+    .axis_source = ptr_axis_source,
+    .axis_stop = ptr_axis_stop,
+    .axis_discrete = ptr_axis_discrete,
+    .axis_value120 = ptr_axis_value120,
+    .axis_relative_direction = ptr_axis_direction,
+};
+
 static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps) {
 	(void)data;
 	int has = caps & WL_SEAT_CAPABILITY_KEYBOARD;
@@ -407,6 +619,14 @@ static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps) {
 		wl_keyboard_destroy(w.keyboard);
 		w.keyboard = NULL;
 		repeat_arm(0);
+	}
+	int pointer = caps & WL_SEAT_CAPABILITY_POINTER;
+	if (pointer && !w.pointer) {
+		w.pointer = wl_seat_get_pointer(seat);
+		wl_pointer_add_listener(w.pointer, &pointer_listener, NULL);
+	} else if (!pointer && w.pointer) {
+		wl_pointer_destroy(w.pointer);
+		w.pointer = NULL;
 	}
 }
 
@@ -527,6 +747,7 @@ static void from_term(void) {
 		if ((size_t)n == sizeof(w.seq)) {
 			memcpy(&w.seq, w.msg, sizeof(w.seq));
 			w.damage = 1;
+			set_cursor();
 		}
 		break;
 	case MSG_TITLE:
@@ -582,6 +803,13 @@ static int open_window(const struct cli *c) {
 		return -1;
 	}
 	xdg_wm_base_add_listener(w.wm, &wm_listener, NULL);
+	const char *size = getenv("XCURSOR_SIZE");
+	w.cursor_theme = wl_cursor_theme_load(
+	    getenv("XCURSOR_THEME"),
+	    size && atoi(size) > 0 ? atoi(size) : CURSOR_SIZE, w.shm);
+	w.cursor_surf = wl_compositor_create_surface(w.comp);
+	w.held = MB_NONE;
+	w.last_x = w.last_y = -1;
 	if (w.seat)
 		wl_seat_add_listener(w.seat, &seat_listener, NULL);
 	w.surf = wl_compositor_create_surface(w.comp);
@@ -617,6 +845,12 @@ static void close_window(void) {
 		wl_surface_destroy(w.surf);
 	if (w.keyboard)
 		wl_keyboard_destroy(w.keyboard);
+	if (w.pointer)
+		wl_pointer_destroy(w.pointer);
+	if (w.cursor_surf)
+		wl_surface_destroy(w.cursor_surf);
+	if (w.cursor_theme)
+		wl_cursor_theme_destroy(w.cursor_theme);
 	if (w.seat)
 		wl_seat_destroy(w.seat);
 	if (w.deco_mgr)

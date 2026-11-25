@@ -315,6 +315,8 @@ int kbd_key(struct kbd *k, uint32_t evdev, int type, struct key *out) {
 	return out->code || k->text[0] ? 0 : -1;
 }
 
+unsigned kbd_mods(struct kbd *k) { return k->state ? state_mods(k) : 0; }
+
 int kbd_repeats(struct kbd *k, uint32_t evdev) {
 	return k->map && xkb_keymap_key_repeats(k->map, evdev + 8);
 }

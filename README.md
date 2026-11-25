@@ -21,7 +21,7 @@ its program are all it keeps.
 ## Requirements
 
 - libseccomp.
-- wayland-client and xkbcommon, and to build, wayland-scanner and
+- wayland-client, wayland-cursor and xkbcommon, and to build, wayland-scanner and
   wayland-protocols. Dead keys take the compose table of the locale, from the
   X11 locale data.
 - tundra-libdraw, which paints the screen and reads the fonts and the theme.

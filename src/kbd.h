@@ -28,6 +28,7 @@ void kbd_modifiers(struct kbd *k, uint32_t depressed, uint32_t latched,
                    uint32_t locked, uint32_t group);
 int kbd_key(struct kbd *k, uint32_t evdev, int type, struct key *out);
 int kbd_repeats(struct kbd *k, uint32_t evdev);
+unsigned kbd_mods(struct kbd *k);
 uint32_t kbd_keysym_code(xkb_keysym_t sym);
 
 #endif

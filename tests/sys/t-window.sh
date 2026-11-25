@@ -100,6 +100,13 @@ reader() {
 	sleep 0.3
 }
 
+point() {
+	set -- $(windows | awk -v a="$1" '$3 == a { print $6, $7, $8, $9 }')
+	cols=$(($3 / 16)) rows=$(($4 / 24))
+	"$ask" move $(($1 + ($3 - cols * 16) / 2 + 4 * 16 + 8)) \
+		$(($2 + ($4 - rows * 24) / 2 + 2 * 24 + 12)) >/dev/null
+}
+
 finish() {
 	for p in $others; do
 		kill "$p" 2>/dev/null
@@ -205,6 +212,30 @@ others="$others $!"
 wait_end $win
 check "$(hex "$WORK/focus" | grep -o '1b 5b 4f$')" "1b 5b 4f" \
 	"a program that asks hears the window lose the focus"
+
+reader mouse "printf '\\033[?1000h\\033[?1006h';" "head -c 18"
+point mouse
+"$ask" button down >/dev/null
+"$ask" button up >/dev/null
+wait_end $win
+check "$(hex "$WORK/mouse")" \
+	"1b 5b 3c 30 3b 35 3b 33 4d 1b 5b 3c 30 3b 35 3b 33 6d" \
+	"a click reaches the program that asks, in SGR, on its cell"
+
+reader wheel "printf '\\033[?1049h';" "head -c 6"
+point wheel
+"$ask" scroll 48 >/dev/null
+wait_end $win
+check "$(hex "$WORK/wheel")" "1b 5b 42 1b 5b 42" \
+	"in the alternate screen the touchpad is arrows, a line a cell"
+
+reader wheelm "printf '\\033[?1000h\\033[?1006h';" "head -c 20"
+point wheelm
+"$ask" scroll -48 >/dev/null
+wait_end $win
+check "$(hex "$WORK/wheelm")" \
+	"1b 5b 3c 36 34 3b 35 3b 33 4d 1b 5b 3c 36 34 3b 35 3b 33 4d" \
+	"to a program that asks, the touchpad is the wheel, a line a cell"
 
 $frost --app-id frost-fall sh -c 'printf tres; sleep 30' &
 win=$!
