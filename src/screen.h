@@ -88,12 +88,6 @@ struct grid {
 	int nkeys;
 };
 
-struct scr_mem {
-	void *(*get)(void *ctx, size_t size);
-	void (*put)(void *ctx, void *block, size_t size);
-	void *ctx;
-};
-
 struct scr_hooks {
 	void (*bell)(void *ctx);
 	void (*title)(void *ctx, const char *title);
@@ -141,19 +135,13 @@ struct scr {
 
 	struct scr_hooks hooks;
 	void *ctx;
-	struct scr_mem mem;
 	void *block;
-	size_t block_size;
 	struct vt vt;
 };
 
 struct hist;
 
 int scr_init(struct scr *s, int cols, int rows);
-int scr_init_mem(struct scr *s, int cols, int rows, const struct scr_mem *mem);
-size_t scr_block_size(int cols, int rows);
-void scr_block_layout(void *block, int cols, int rows, struct cell *cells[2],
-                      uint16_t *maps[2], uint8_t *lines[2]);
 int scr_resize(struct scr *s, int cols, int rows, struct hist *h);
 void scr_free(struct scr *s);
 void scr_feed(struct scr *s, const uint8_t *buf, size_t len);

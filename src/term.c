@@ -22,7 +22,6 @@
 #include "shm.h"
 
 #define HISTORY_BYTES (32u << 20)
-#define ACK_WAIT_MS 50
 #define SYNC_MAX_MS 150
 #define TERMS_MAX 999
 #define FIRST_MSG_MS 500
@@ -38,10 +37,9 @@ static struct term {
 	struct hist hist;
 	int master, win, sig;
 	pid_t pid;
-	struct mapping cur, next;
-	int cols, rows;
-	int waiting, changed, synced;
-	long long since, sync_since;
+	struct mapping cur;
+	int waiting, changed, full, synced;
+	long long sync_since;
 	int lsock, dirfd;
 	unsigned number;
 	char path[sizeof(((struct sockaddr_un *)0)->sun_path)];
@@ -58,40 +56,36 @@ static long long now_ms(void) {
 
 static struct shm_head *head(void) { return (struct shm_head *)t.cur.base; }
 
-static void *shm_get(void *ctx, size_t size) {
-	(void)ctx, (void)size;
-	size_t total = shm_size(t.cols, t.rows);
+static int shm_make(int cols, int rows) {
+	struct shm_layout l = shm_layout(cols, rows);
 	int fd = memfd_create("frost", MFD_CLOEXEC);
-	if (fd < 0 || ftruncate(fd, (off_t)total) < 0) {
+	if (fd < 0 || ftruncate(fd, (off_t)l.size) < 0) {
 		perror("memfd error");
 		if (fd >= 0)
 			close(fd);
-		return NULL;
+		return -1;
 	}
-	uint8_t *p = mmap(NULL, total, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	uint8_t *p = mmap(NULL, l.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (p == MAP_FAILED) {
 		perror("mmap error");
 		close(fd);
-		return NULL;
+		return -1;
 	}
 	struct shm_head *h = (struct shm_head *)p;
 	h->magic = SHM_MAGIC;
 	h->version = SHM_VERSION;
-	h->block_off = SHM_HEAD_SIZE;
-	h->dirty_off = (uint32_t)(SHM_HEAD_SIZE + scr_block_size(t.cols, t.rows));
-	h->cols = (uint16_t)t.cols;
-	h->rows = (uint16_t)t.rows;
-	t.next = (struct mapping){fd, p, total};
-	return p + SHM_HEAD_SIZE;
-}
-
-static void shm_put(void *ctx, void *block, size_t size) {
-	(void)ctx, (void)size;
-	struct mapping *m =
-	    (uint8_t *)block - SHM_HEAD_SIZE == t.cur.base ? &t.cur : &t.next;
-	munmap(m->base, m->size);
-	close(m->fd);
-	*m = (struct mapping){-1, NULL, 0};
+	h->cols = (uint16_t)cols;
+	h->rows = (uint16_t)rows;
+	uint16_t *map = (uint16_t *)(p + l.map);
+	for (int y = 0; y < rows; y++)
+		map[y] = (uint16_t)y;
+	if (t.cur.base) {
+		h->seq = head()->seq;
+		munmap(t.cur.base, t.cur.size);
+		close(t.cur.fd);
+	}
+	t.cur = (struct mapping){fd, p, l.size};
+	return 0;
 }
 
 static void to_window(uint32_t type, const void *data, size_t len) {
@@ -126,13 +120,25 @@ static void on_scrollout(void *ctx, const struct cell *c, int cols,
 static void on_seal(void *ctx) { (void)ctx, hist_seal(&t.hist); }
 static void on_clear(void *ctx) { (void)ctx, hist_clear(&t.hist); }
 
-static void write_begin(void) {
-	__atomic_store_n(&head()->seq, head()->seq + 1, __ATOMIC_RELEASE);
-}
-
-static void write_end(void) {
+static void publish(int all) {
 	struct shm_head *h = head();
 	struct scr *s = &t.scr;
+	struct grid *g = &s->grid[s->alt];
+	struct shm_layout l = shm_layout(s->cols, s->rows);
+	struct cell *cells = (struct cell *)(t.cur.base + l.cells);
+	uint8_t *lines = t.cur.base + l.lines, *dirty = t.cur.base + l.dirty;
+	size_t row = (size_t)s->cols * sizeof(*cells);
+
+	__atomic_store_n(&h->seq, h->seq + 1, __ATOMIC_RELEASE);
+	for (int y = 0; y < s->rows; y++) {
+		if (!all && !s->dirty[y])
+			continue;
+		memcpy(cells + (size_t)y * s->cols,
+		       g->cells + (size_t)g->map[y] * s->cols, row);
+		lines[y] = g->lines[g->map[y]];
+		dirty[y] = 1;
+		s->dirty[y] = 0;
+	}
 	h->x = (uint16_t)s->x, h->y = (uint16_t)s->y;
 	h->alt = (uint8_t)s->alt, h->pending = (uint8_t)s->pending;
 	h->cursor_visible = (uint8_t)s->cursor_visible;
@@ -142,13 +148,6 @@ static void write_end(void) {
 	h->focus_events = (uint8_t)s->focus_events;
 	memcpy(h->palette, s->palette, sizeof(h->palette));
 	memcpy(h->palette_set, s->palette_set, sizeof(h->palette_set));
-	uint8_t *dirty = t.cur.base + h->dirty_off;
-	for (int y = 0; y < s->rows; y++)
-		if (s->dirty[y]) {
-			dirty[y] = 1;
-			s->dirty[y] = 0;
-			t.changed = 1;
-		}
 	__atomic_store_n(&h->seq, h->seq + 1, __ATOMIC_RELEASE);
 }
 
@@ -160,11 +159,11 @@ static void notify(void) {
 		return;
 	if (t.scr.sync && now_ms() - t.sync_since < SYNC_MAX_MS)
 		return;
+	publish(t.full);
 	uint32_t seq = head()->seq;
 	to_window(MSG_DAMAGE, &seq, sizeof(seq));
 	t.waiting = t.win >= 0;
-	t.since = now_ms();
-	t.changed = 0;
+	t.changed = t.full = 0;
 }
 
 static void write_all(int fd, const uint8_t *p, size_t n) {
@@ -179,9 +178,8 @@ static void write_all(int fd, const uint8_t *p, size_t n) {
 }
 
 static void feed(const uint8_t *p, size_t n) {
-	write_begin();
 	scr_feed(&t.scr, p, n);
-	write_end();
+	t.changed = 1;
 	if (t.scr.reply_len) {
 		write_all(t.master, t.scr.reply, t.scr.reply_len);
 		t.scr.reply_len = 0;
@@ -221,22 +219,17 @@ static void send_shm(void) {
 static void resize(const struct msg_resize *r) {
 	if (r->cols < 1 || r->rows < 1)
 		return;
-	t.cols = r->cols, t.rows = r->rows;
 	t.scr.cell_w = r->cell_w, t.scr.cell_h = r->cell_h;
 	if (r->cols != t.scr.cols || r->rows != t.scr.rows) {
-		write_begin();
+		if (shm_make(r->cols, r->rows) < 0)
+			return;
 		if (scr_resize(&t.scr, r->cols, r->rows, &t.hist) < 0) {
-			write_end();
+			shm_make(t.scr.cols, t.scr.rows);
 			return;
 		}
-		t.cur = t.next;
-		t.next = (struct mapping){-1, NULL, 0};
-		head()->seq = 0;
-		write_begin();
-		write_end();
 		send_shm();
 		t.waiting = 0;
-		t.changed = 1;
+		t.changed = t.full = 1;
 	}
 	pty_resize(t.master, r->cols, r->rows, r->cell_w, r->cell_h);
 }
@@ -275,7 +268,7 @@ static void from_window(void) {
 		memcpy(&seq, t.buf, sizeof(seq));
 		if (seq != head()->seq)
 			break;
-		uint8_t *dirty = t.cur.base + head()->dirty_off;
+		uint8_t *dirty = t.cur.base + shm_layout(t.scr.cols, t.scr.rows).dirty;
 		memset(dirty, 0, (size_t)t.scr.rows);
 		t.waiting = 0;
 		break;
@@ -376,7 +369,7 @@ static void accept_one(void) {
 		if (t.win >= 0)
 			send_info(t.win);
 		t.waiting = 0;
-		t.changed = 1;
+		t.changed = t.full = 1;
 		return;
 	} else if (type == MSG_ATTACH) {
 		msg_send(fd, MSG_BUSY, NULL, 0, -1);
@@ -399,9 +392,9 @@ int main(int argc, char **argv) {
 	if (argc < 4)
 		return usage();
 	t.win = number(argv[1], 0, 1 << 20);
-	t.cols = number(argv[2], 1, 65535);
-	t.rows = number(argv[3], 1, 65535);
-	if (t.win < 0 || t.cols < 0 || t.rows < 0)
+	int cols = number(argv[2], 1, 65535);
+	int rows = number(argv[3], 1, 65535);
+	if (t.win < 0 || cols < 0 || rows < 0)
 		return usage();
 	char **cmd = argc > 4 ? argv + 4 : NULL;
 	fcntl(t.win, F_SETFD, FD_CLOEXEC);
@@ -426,14 +419,11 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	struct scr_mem mem = {shm_get, shm_put, NULL};
 	if (hist_init(&t.hist, HISTORY_BYTES) < 0 ||
-	    scr_init_mem(&t.scr, t.cols, t.rows, &mem) < 0) {
+	    scr_init(&t.scr, cols, rows) < 0 || shm_make(cols, rows) < 0) {
 		fprintf(stderr, "frost-term: cannot make the screen\n");
 		return 1;
 	}
-	t.cur = t.next;
-	t.next = (struct mapping){-1, NULL, 0};
 	t.scr.hooks = (struct scr_hooks){.bell = on_bell,
 	                                 .title = on_title,
 	                                 .cwd = on_cwd,
@@ -442,7 +432,7 @@ int main(int argc, char **argv) {
 	                                 .scrollout = on_scrollout,
 	                                 .clear_history = on_clear,
 	                                 .seal = on_seal};
-	t.master = pty_spawn(cmd, t.cols, t.rows, &t.pid);
+	t.master = pty_spawn(cmd, cols, rows, &t.pid);
 	if (t.master < 0)
 		return 1;
 	listen_numbered();
@@ -450,9 +440,7 @@ int main(int argc, char **argv) {
 	if (sandbox_term(t.master, t.dirfd, t.pid) < 0)
 		return 1;
 #endif
-	write_begin();
-	write_end();
-	t.changed = 1;
+	t.changed = t.full = 1;
 	send_shm();
 	if (t.win >= 0)
 		send_info(t.win);
@@ -460,16 +448,12 @@ int main(int argc, char **argv) {
 
 	int pty_open = 1, status = 0;
 	for (;;) {
-		struct pollfd p[4] = {
-		    {t.sig, POLLIN, 0},
-		    {t.win, POLLIN, 0},
-		    {pty_open && !t.waiting ? t.master : -1, POLLIN, 0},
-		    {t.lsock, POLLIN, 0}};
+		struct pollfd p[4] = {{t.sig, POLLIN, 0},
+		                      {t.win, POLLIN, 0},
+		                      {pty_open ? t.master : -1, POLLIN, 0},
+		                      {t.lsock, POLLIN, 0}};
 		int timeout = -1;
-		if (t.waiting) {
-			long long left = t.since + ACK_WAIT_MS - now_ms();
-			timeout = left > 0 ? (int)left : 0;
-		} else if (t.changed && t.scr.sync) {
+		if (!t.waiting && t.changed && t.scr.sync) {
 			long long left = t.sync_since + SYNC_MAX_MS - now_ms();
 			timeout = left > 0 ? (int)left : 0;
 		}
@@ -477,8 +461,6 @@ int main(int argc, char **argv) {
 			perror("poll error");
 			return 1;
 		}
-		if (t.waiting && now_ms() - t.since >= ACK_WAIT_MS)
-			t.waiting = 0;
 		if (p[2].revents & (POLLIN | POLLHUP | POLLERR))
 			if (read_pty() < 0)
 				pty_open = 0;

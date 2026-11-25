@@ -40,5 +40,11 @@ check "$($client $term 20 3 -- sh -c 'seq 1 3000 | tail -1' | head -1)" "|3000" 
 	"a lot of output gets through"
 
 check "$($client $term 20 3 -l 400 -- sh -c 'printf a; sleep 0.2; printf "\nb\nc"; sleep 0.5' | head -1)" \
-	"dirty 0 1 2" "an answer for a screen written since keeps its rows dirty"
+	"dirty 0 1 2" "a window that answers late gets what was written meanwhile"
+
+start=$(date +%s%N)
+last=$($client $term 20 3 -s 200 -- seq 1 100000 | grep -c '^|100000$')
+ms=$((($(date +%s%N) - start) / 1000000))
+check "$last $([ "$ms" -lt 5000 ] && echo fast || echo "$ms ms")" "1 fast" \
+	"a window that paints slowly does not hold the program"
 exit $fail

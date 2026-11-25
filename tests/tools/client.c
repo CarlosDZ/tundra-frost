@@ -23,7 +23,7 @@ static unsigned number;
 
 struct opts {
 	char *input, *name;
-	int rc, rr, wait_ms, late_ms, detach, close_it;
+	int rc, rr, wait_ms, late_ms, slow_ms, detach, close_it;
 };
 
 static void unescape(char *s) {
@@ -41,13 +41,10 @@ static void unescape(char *s) {
 
 static void print_screen(void) {
 	const struct shm_head *h = (const void *)map;
-	struct cell *cells[2];
-	uint16_t *maps[2];
-	uint8_t *lines[2];
-	scr_block_layout(map + h->block_off, h->cols, h->rows, cells, maps, lines);
-	int g = h->alt;
+	const struct cell *cells =
+	    (const struct cell *)(map + shm_layout(h->cols, h->rows).cells);
 	for (int y = 0; y < h->rows; y++) {
-		const struct cell *row = cells[g] + (size_t)maps[g][y] * h->cols;
+		const struct cell *row = cells + (size_t)y * h->cols;
 		int end = h->cols;
 		while (end > 0 && !row[end - 1].cp)
 			end--;
@@ -65,9 +62,10 @@ static void print_screen(void) {
 
 static void print_dirty(void) {
 	const struct shm_head *h = (const void *)map;
+	size_t dirty = shm_layout(h->cols, h->rows).dirty;
 	printf("dirty");
 	for (int y = 0; y < h->rows; y++)
-		if (map[h->dirty_off + y])
+		if (map[dirty + y])
 			printf(" %d", y);
 	printf("\n");
 }
@@ -82,6 +80,8 @@ static int parse(int argc, char **argv, int i, struct opts *o) {
 			o->wait_ms = atoi(argv[++i]);
 		else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc)
 			o->late_ms = atoi(argv[++i]);
+		else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc)
+			o->slow_ms = atoi(argv[++i]);
 		else if (strcmp(argv[i], "-r") == 0 && i + 2 < argc)
 			o->rc = atoi(argv[i + 1]), o->rr = atoi(argv[i + 2]), i += 2;
 		else if (strcmp(argv[i], "-d") == 0)
@@ -125,6 +125,8 @@ static void session(int fd, const struct opts *o, int attached) {
 				poll(NULL, 0, 50);
 				print_dirty();
 			} else {
+				if (o->slow_ms)
+					poll(NULL, 0, o->slow_ms);
 				msg_send(fd, MSG_ACK, &seq, sizeof(seq), -1);
 			}
 			if (!first)

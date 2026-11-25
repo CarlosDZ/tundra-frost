@@ -199,20 +199,14 @@ static int view_of(struct view *v) {
 	if (!w.map)
 		return -1;
 	const struct shm_head *h = (const struct shm_head *)w.map;
-	if (h->magic != SHM_MAGIC || h->version != SHM_VERSION ||
-	    h->block_off != SHM_HEAD_SIZE ||
-	    w.map_size < shm_size(h->cols, h->rows))
+	if (h->magic != SHM_MAGIC || h->version != SHM_VERSION || !h->cols ||
+	    !h->rows || w.map_size < shm_layout(h->cols, h->rows).size)
 		return -1;
-	struct cell *cells[2];
-	uint16_t *maps[2];
-	uint8_t *lines[2];
-	scr_block_layout(w.map + h->block_off, h->cols, h->rows, cells, maps,
-	                 lines);
-	int g = h->alt ? 1 : 0;
+	struct shm_layout l = shm_layout(h->cols, h->rows);
 	*v = (struct view){h->cols,
 	                   h->rows,
-	                   cells[g],
-	                   maps[g],
+	                   (const struct cell *)(w.map + l.cells),
+	                   (const uint16_t *)(w.map + l.map),
 	                   h->x,
 	                   h->y,
 	                   h->pending,
@@ -247,8 +241,7 @@ static void draw(void) {
 	if (!b)
 		return;
 	struct buffer *other = b == &w.buf[0] ? &w.buf[1] : &w.buf[0];
-	const struct shm_head *h = (const struct shm_head *)w.map;
-	const uint8_t *dirty = w.map + h->dirty_off;
+	const uint8_t *dirty = w.map + shm_layout(v.cols, v.rows).dirty;
 	int rows = v.rows < w.rows ? v.rows : w.rows;
 
 	int blinks = w.focused && v.cursor_visible && v.cursor_blink;

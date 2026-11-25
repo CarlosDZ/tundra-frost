@@ -401,14 +401,14 @@ static void full_reset(struct scr *s) {
 	dirty(s, 0, s->rows - 1);
 }
 
-size_t scr_block_size(int cols, int rows) {
+static size_t block_size(int cols, int rows) {
 	size_t n = (size_t)cols * rows;
 	return 2 * n * sizeof(struct cell) + 2 * (size_t)rows * sizeof(uint16_t) +
 	       2 * (size_t)rows;
 }
 
-void scr_block_layout(void *block, int cols, int rows, struct cell *cells[2],
-                      uint16_t *maps[2], uint8_t *lines[2]) {
+static void block_layout(void *block, int cols, int rows, struct cell *cells[2],
+                         uint16_t *maps[2], uint8_t *lines[2]) {
 	size_t n = (size_t)cols * rows;
 	cells[0] = block;
 	cells[1] = cells[0] + n;
@@ -418,32 +418,12 @@ void scr_block_layout(void *block, int cols, int rows, struct cell *cells[2],
 	lines[1] = lines[0] + rows;
 }
 
-static void *mem_get(struct scr *s, size_t size) {
-	return s->mem.get ? s->mem.get(s->mem.ctx, size) : calloc(1, size);
-}
-
-static void mem_put(struct scr *s, void *block, size_t size) {
-	if (!block)
-		return;
-	if (s->mem.put)
-		s->mem.put(s->mem.ctx, block, size);
-	else
-		free(block);
-}
-
 int scr_init(struct scr *s, int cols, int rows) {
-	return scr_init_mem(s, cols, rows, NULL);
-}
-
-int scr_init_mem(struct scr *s, int cols, int rows, const struct scr_mem *mem) {
 	memset(s, 0, sizeof(*s));
 	if (cols < 1 || rows < 1 || cols > 65535 || rows > 65535)
 		return -1;
-	if (mem)
-		s->mem = *mem;
 	s->cols = cols, s->rows = rows;
-	s->block_size = scr_block_size(cols, rows);
-	s->block = mem_get(s, s->block_size);
+	s->block = calloc(1, block_size(cols, rows));
 	s->tabs = calloc((size_t)cols, 1);
 	s->dirty = calloc((size_t)rows, 1);
 	if (!s->block || !s->tabs || !s->dirty) {
@@ -453,7 +433,7 @@ int scr_init_mem(struct scr *s, int cols, int rows, const struct scr_mem *mem) {
 	struct cell *cells[2];
 	uint16_t *maps[2];
 	uint8_t *lines[2];
-	scr_block_layout(s->block, cols, rows, cells, maps, lines);
+	block_layout(s->block, cols, rows, cells, maps, lines);
 	for (int i = 0; i < 2; i++) {
 		s->grid[i].cells = cells[i];
 		s->grid[i].map = maps[i];
@@ -469,7 +449,7 @@ int scr_init_mem(struct scr *s, int cols, int rows, const struct scr_mem *mem) {
 }
 
 void scr_free(struct scr *s) {
-	mem_put(s, s->block, s->block_size);
+	free(s->block);
 	free(s->tabs);
 	free(s->dirty);
 	for (int i = 0; i < s->nlinks; i++)
@@ -1426,8 +1406,7 @@ int scr_resize(struct scr *s, int cols, int rows, struct hist *h) {
 	if (cols == s->cols && rows == s->rows)
 		return 0;
 	struct reflow f = {0};
-	size_t bsize = scr_block_size(cols, rows);
-	void *block = mem_get(s, bsize);
+	void *block = calloc(1, block_size(cols, rows));
 	struct cell *cells[2] = {NULL, NULL};
 	uint16_t *maps[2] = {NULL, NULL};
 	uint8_t *lines[2] = {NULL, NULL};
@@ -1435,7 +1414,7 @@ int scr_resize(struct scr *s, int cols, int rows, struct hist *h) {
 	int ret = -1, alt = s->alt;
 	if (!block || !tabs || !dirt)
 		goto out;
-	scr_block_layout(block, cols, rows, cells, maps, lines);
+	block_layout(block, cols, rows, cells, maps, lines);
 
 	struct saved *sv = &s->grid[0].saved;
 	int cx = alt ? sv->x : s->x, cy = alt ? sv->y : s->y;
@@ -1560,9 +1539,8 @@ int scr_resize(struct scr *s, int cols, int rows, struct hist *h) {
 		s->alt = 0;
 	}
 
-	mem_put(s, s->block, s->block_size);
+	free(s->block);
 	s->block = block, block = NULL;
-	s->block_size = bsize;
 	for (int i = 0; i < 2; i++) {
 		s->grid[i].cells = cells[i];
 		s->grid[i].lines = lines[i];
@@ -1597,7 +1575,7 @@ int scr_resize(struct scr *s, int cols, int rows, struct hist *h) {
 	ret = 0;
 out:
 	s->alt = alt;
-	mem_put(s, block, bsize);
+	free(block);
 	free(tabs);
 	free(dirt);
 	free(f.c);
