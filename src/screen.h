@@ -25,7 +25,10 @@ enum {
 	ATTR_UL_MASK = 7 << 8,
 	ATTR_WIDE = 1 << 11,
 	ATTR_WIDE_TAIL = 1 << 12,
+	ATTR_PAD = 1 << 13,
 };
+
+#define ATTR_LAYOUT (ATTR_WIDE | ATTR_WIDE_TAIL | ATTR_PAD)
 
 enum ul_style { UL_NONE, UL_SINGLE, UL_DOUBLE, UL_CURLY, UL_DOTTED, UL_DASHED };
 
@@ -94,6 +97,7 @@ struct scr_hooks {
 	void (*scrollout)(void *ctx, const struct cell *cells, int cols,
 	                  uint8_t flags);
 	void (*clear_history)(void *ctx);
+	void (*seal)(void *ctx);
 };
 
 struct scr {
@@ -134,7 +138,10 @@ struct scr {
 	struct vt vt;
 };
 
+struct hist;
+
 int scr_init(struct scr *s, int cols, int rows);
+int scr_resize(struct scr *s, int cols, int rows, struct hist *h);
 void scr_free(struct scr *s);
 void scr_feed(struct scr *s, const uint8_t *buf, size_t len);
 struct cell *scr_cell(struct scr *s, int x, int y);

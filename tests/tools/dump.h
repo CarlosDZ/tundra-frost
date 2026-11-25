@@ -37,12 +37,11 @@ static void dump(FILE *out, struct scr *s) {
 			while (k < s->cols) {
 				struct cell *d = scr_cell(s, k, y);
 				if (d->fg != c->fg || d->bg != c->bg || d->ul != c->ul ||
-				    (d->attr & ~(ATTR_WIDE | ATTR_WIDE_TAIL)) !=
-				        (c->attr & ~(ATTR_WIDE | ATTR_WIDE_TAIL)))
+				    (d->attr & ~ATTR_LAYOUT) != (c->attr & ~ATTR_LAYOUT))
 					break;
 				k++;
 			}
-			uint16_t attr = c->attr & ~(ATTR_WIDE | ATTR_WIDE_TAIL);
+			uint16_t attr = c->attr & ~ATTR_LAYOUT;
 			if (c->fg || c->bg || c->ul || attr)
 				fprintf(out,
 				        "style %d %d-%d fg=%08x bg=%08x ul=%08x attr=%04x\n", y,

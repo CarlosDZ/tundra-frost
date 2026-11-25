@@ -1,3 +1,4 @@
+#include "history.c"
 #include "screen.c"
 #include "vt.c"
 #include "width.c"

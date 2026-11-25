@@ -1,4 +1,5 @@
 #include "screen.h"
+#include "history.h"
 #include "width.h"
 
 #include <stdarg.h>
@@ -57,6 +58,11 @@ static struct cell blank(const struct scr *s) {
 	return c;
 }
 
+static int empty_plain_cell(const struct cell *c) {
+	return !c->cp && !c->fg && !c->bg && !c->ul && !c->link &&
+	       !(c->attr & ~ATTR_LAYOUT);
+}
+
 static void unwide(struct scr *s, int x, int y) {
 	struct cell *c = scr_cell(s, x, y);
 	if ((c->attr & ATTR_WIDE_TAIL) && x > 0)
@@ -80,7 +86,14 @@ static void fill(struct scr *s, int y, int x0, int x1) {
 	s->dirty[y] = 1;
 }
 
+static void seal(struct scr *s) {
+	if (!s->alt && s->hooks.seal)
+		s->hooks.seal(s->ctx);
+}
+
 static void clear_rows(struct scr *s, int y0, int y1) {
+	if (y0 == 0)
+		seal(s);
 	for (int y = y0; y <= y1; y++) {
 		fill(s, y, 0, s->cols);
 		*line(s, y) = 0;
@@ -123,6 +136,8 @@ static void scroll_down(struct scr *s, int top, int bot, int n) {
 		n = h;
 	if (n <= 0)
 		return;
+	if (top == 0)
+		seal(s);
 	rotate(s, top, bot, n, 0);
 	clear_rows(s, top, top + n - 1);
 	dirty(s, top, bot);
@@ -240,6 +255,7 @@ static void print(struct scr *s, uint32_t cp) {
 		if (!s->autowrap || s->cols < 2)
 			return;
 		fill(s, s->y, s->x, s->cols);
+		scr_cell(s, s->x, s->y)->attr |= ATTR_PAD;
 		wrap(s);
 	}
 	if (s->insert)
@@ -874,6 +890,8 @@ static void csi(struct scr *s, const struct vt_seq *q) {
 		}
 		break;
 	case 'K':
+		if (s->y == 0 && (p0 == 2 || (p0 != 1 && s->x == 0)))
+			seal(s);
 		if (p0 == 0)
 			fill(s, s->y, s->x, s->cols);
 		else if (p0 == 1)
@@ -1266,6 +1284,293 @@ static void dcs(struct scr *s, const struct vt_seq *q, const uint8_t *str,
 	}
 	if (strcmp(q->inter, "+") == 0 && q->final == 'q')
 		reply(s, "\x1bP0+r\x1b\\");
+}
+
+struct lline {
+	size_t start;
+	int n;
+	uint8_t flags;
+};
+
+struct prow {
+	size_t line;
+	int start, end;
+};
+
+struct reflow {
+	struct cell *c;
+	size_t n, size;
+	struct lline *l;
+	size_t nl, lsize;
+	struct prow *r;
+	size_t nr, rsize;
+};
+
+static int more(void **p, size_t *size, size_t need, size_t elem) {
+	if (need <= *size)
+		return 0;
+	size_t n = *size ? *size : 64;
+	while (n < need)
+		n *= 2;
+	void *q = realloc(*p, n * elem);
+	if (!q)
+		return -1;
+	*p = q;
+	*size = n;
+	return 0;
+}
+
+static struct lline *new_line(struct reflow *f, uint8_t flags) {
+	if (more((void **)&f->l, &f->lsize, f->nl + 1, sizeof(*f->l)) < 0)
+		return NULL;
+	struct lline *l = &f->l[f->nl++];
+	l->start = f->n, l->n = 0, l->flags = flags & LINE_PROMPT;
+	return l;
+}
+
+static int split_line(struct reflow *f, size_t i, int cols, size_t at,
+                      size_t *nrows) {
+	struct lline *l = &f->l[i];
+	const struct cell *c = f->c + l->start;
+	int rows = split_rows(c, l->n, cols, NULL, 0);
+	int *starts = malloc((size_t)rows * sizeof(int));
+	if (!starts ||
+	    more((void **)&f->r, &f->rsize, f->nr + (size_t)rows, sizeof(*f->r))) {
+		free(starts);
+		return -1;
+	}
+	split_rows(c, l->n, cols, starts, rows);
+	memmove(f->r + at + rows, f->r + at, (f->nr - at) * sizeof(*f->r));
+	for (int k = 0; k < rows; k++) {
+		struct prow *r = &f->r[at + (size_t)k];
+		r->line = i;
+		r->start = starts[k];
+		r->end = k + 1 < rows ? starts[k + 1] : l->n;
+	}
+	f->nr += (size_t)rows;
+	free(starts);
+	*nrows = (size_t)rows;
+	return 0;
+}
+
+static uint8_t row_cells(const struct reflow *f, size_t r, int cols,
+                         struct cell *out) {
+	const struct prow *p = &f->r[r];
+	const struct lline *l = &f->l[p->line];
+	int n = p->end - p->start;
+	if (n > cols)
+		n = cols;
+	memcpy(out, f->c + l->start + p->start, (size_t)n * sizeof(*out));
+	if (n > 0 && (out[n - 1].attr & ATTR_WIDE) && n == cols)
+		out[n - 1] = (struct cell){0};
+	memset(out + n, 0, (size_t)(cols - n) * sizeof(*out));
+	uint8_t flags = p->start == 0 ? l->flags : 0;
+	if (r + 1 < f->nr && f->r[r + 1].line == p->line) {
+		flags |= LINE_WRAPPED;
+		if (n < cols)
+			out[n].attr |= ATTR_PAD;
+	}
+	return flags;
+}
+
+static int pull_line(struct reflow *f, struct hist *h, uint8_t *flags) {
+	int n = hist_get(h, hist_count(h) - 1, NULL, 0, NULL);
+	if (n < 0 ||
+	    more((void **)&f->c, &f->size, f->n + (size_t)n, sizeof(*f->c)) < 0)
+		return -1;
+	hist_pop(h, f->c + f->n, n, flags, NULL);
+	f->n += (size_t)n;
+	return n;
+}
+
+int scr_resize(struct scr *s, int cols, int rows, struct hist *h) {
+	if (cols < 1 || rows < 1 || cols > 65535 || rows > 65535)
+		return -1;
+	if (cols == s->cols && rows == s->rows)
+		return 0;
+	struct reflow f = {0};
+	size_t n = (size_t)cols * rows;
+	struct cell *cells[2] = {calloc(n, sizeof(struct cell)),
+	                         calloc(n, sizeof(struct cell))};
+	uint8_t *lines[2] = {calloc((size_t)rows, 1), calloc((size_t)rows, 1)};
+	uint16_t *maps[2] = {calloc((size_t)rows, 2), calloc((size_t)rows, 2)};
+	uint8_t *tabs = calloc((size_t)cols, 1), *dirt = calloc((size_t)rows, 1);
+	int ret = -1, alt = s->alt;
+	if (!cells[0] || !cells[1] || !lines[0] || !lines[1] || !maps[0] ||
+	    !maps[1] || !tabs || !dirt)
+		goto out;
+
+	struct saved *sv = &s->grid[0].saved;
+	int cx = alt ? sv->x : s->x, cy = alt ? sv->y : s->y;
+	int cpend = alt ? sv->pending : s->pending;
+	s->alt = 0;
+
+	int cont = 0;
+	if (h && h->open && hist_count(h)) {
+		struct lline *l = new_line(&f, 0);
+		uint8_t fl;
+		int k = l ? pull_line(&f, h, &fl) : -1;
+		if (k < 0)
+			goto out;
+		l = &f.l[0];
+		l->n = k, l->flags = fl & LINE_PROMPT;
+		cont = 1;
+	}
+
+	int last = cy;
+	for (int y = s->rows - 1; y > last; y--) {
+		int used = scr_line(s, y) != 0;
+		for (int x = 0; x < s->cols && !used; x++)
+			used = !empty_plain_cell(scr_cell(s, x, y));
+		if (used)
+			last = y;
+	}
+	size_t cur_line = 0;
+	int cur_off = 0;
+	for (int y = 0; y <= last; y++) {
+		uint8_t lf = scr_line(s, y);
+		struct lline *l = cont ? &f.l[f.nl - 1] : new_line(&f, lf);
+		if (!l)
+			goto out;
+		int k = s->cols;
+		if (!(lf & LINE_WRAPPED))
+			while (k > 0 && empty_plain_cell(scr_cell(s, k - 1, y)))
+				k--;
+		if (y == cy) {
+			int at = cx + (cpend ? 1 : 0);
+			if (k < at)
+				k = at;
+			cur_line = f.nl - 1;
+			cur_off = l->n + at;
+		}
+		if (more((void **)&f.c, &f.size, f.n + (size_t)k, sizeof(*f.c)) < 0)
+			goto out;
+		int kept = 0;
+		for (int x = 0; x < k; x++) {
+			const struct cell *c = scr_cell(s, x, y);
+			if (c->attr & ATTR_PAD) {
+				if (y == cy && x < cx)
+					cur_off--;
+				continue;
+			}
+			f.c[f.n + (size_t)kept++] = *c;
+		}
+		f.n += (size_t)kept;
+		l->n += kept;
+		cont = lf & LINE_WRAPPED;
+	}
+
+	size_t got;
+	for (size_t i = 0; i < f.nl; i++)
+		if (split_line(&f, i, cols, f.nr, &got) < 0)
+			goto out;
+
+	size_t crow = 0;
+	int ccol = 0, cpending = 0;
+	for (size_t r = 0; r < f.nr; r++) {
+		if (f.r[r].line != cur_line)
+			continue;
+		crow = r;
+		if (cur_off < f.r[r].end || r + 1 == f.nr ||
+		    f.r[r + 1].line != cur_line)
+			break;
+	}
+	ccol = cur_off - f.r[crow].start;
+	if (ccol >= cols)
+		ccol = cols - 1, cpending = 1;
+
+	while (h && f.nr < (size_t)rows && hist_count(h)) {
+		uint8_t fl;
+		size_t start = f.n;
+		int k = pull_line(&f, h, &fl);
+		if (k < 0 || more((void **)&f.l, &f.lsize, f.nl + 1, sizeof(*f.l)))
+			goto out;
+		f.l[f.nl] = (struct lline){start, k, (uint8_t)(fl & LINE_PROMPT)};
+		if (split_line(&f, f.nl++, cols, 0, &got) < 0)
+			goto out;
+		crow += got;
+	}
+
+	size_t first = f.nr > (size_t)rows ? f.nr - (size_t)rows : 0;
+	if (crow < first)
+		first = crow;
+	struct cell *tmp = malloc((size_t)cols * sizeof(*tmp));
+	if (!tmp)
+		goto out;
+	for (size_t r = 0; r < first; r++) {
+		uint8_t fl = row_cells(&f, r, cols, tmp);
+		if (h)
+			hist_push(h, tmp, cols, fl);
+	}
+	free(tmp);
+
+	for (int y = 0; y < rows; y++) {
+		maps[0][y] = maps[1][y] = (uint16_t)y;
+		size_t r = first + (size_t)y;
+		if (r < f.nr)
+			lines[0][y] = row_cells(&f, r, cols, cells[0] + (size_t)y * cols);
+	}
+	if (first + (size_t)rows < f.nr)
+		lines[0][rows - 1] &= ~LINE_WRAPPED;
+
+	for (int y = 0; y < rows && y < s->rows; y++) {
+		s->alt = 1;
+		int k = cols < s->cols ? cols : s->cols;
+		memcpy(cells[1] + (size_t)y * cols, scr_cell(s, 0, y),
+		       (size_t)k * sizeof(struct cell));
+		if (k > 0 && (cells[1][(size_t)y * cols + k - 1].attr & ATTR_WIDE))
+			cells[1][(size_t)y * cols + k - 1] = (struct cell){0};
+		s->alt = 0;
+	}
+
+	for (int i = 0; i < 2; i++) {
+		free(s->grid[i].cells);
+		free(s->grid[i].lines);
+		free(s->grid[i].map);
+		s->grid[i].cells = cells[i], cells[i] = NULL;
+		s->grid[i].lines = lines[i], lines[i] = NULL;
+		s->grid[i].map = maps[i], maps[i] = NULL;
+	}
+	free(s->tabs);
+	free(s->dirty);
+	s->tabs = tabs, tabs = NULL;
+	s->dirty = dirt, dirt = NULL;
+	s->cols = cols, s->rows = rows;
+	s->top = 0, s->bot = rows - 1;
+	reset_tabs(s);
+	dirty(s, 0, rows - 1);
+
+	int ny = (int)(crow - first);
+	if (alt) {
+		sv->x = ccol, sv->y = ny, sv->pending = cpending;
+		struct saved *av = &s->grid[1].saved;
+		av->x = av->x < cols ? av->x : cols - 1;
+		av->y = av->y < rows ? av->y : rows - 1;
+		s->x = s->x < cols ? s->x : cols - 1;
+		s->y = s->y < rows ? s->y : rows - 1;
+		s->pending = 0;
+	} else {
+		s->x = ccol, s->y = ny, s->pending = cpending;
+		for (int i = 0; i < 2; i++) {
+			struct saved *v = &s->grid[i].saved;
+			v->x = v->x < cols ? v->x : cols - 1;
+			v->y = v->y < rows ? v->y : rows - 1;
+		}
+	}
+	ret = 0;
+out:
+	s->alt = alt;
+	for (int i = 0; i < 2; i++) {
+		free(cells[i]);
+		free(lines[i]);
+		free(maps[i]);
+	}
+	free(tabs);
+	free(dirt);
+	free(f.c);
+	free(f.l);
+	free(f.r);
+	return ret;
 }
 
 static void dispatch(void *ctx, const struct vt_event *ev) {
