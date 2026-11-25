@@ -44,6 +44,8 @@ window. `tests/ref/window.txt` is a screen and `window.png` how it is painted,
 reviewed once by eye; the window has to show the same. `make bench` times a
 `cat` of 100 MB of short lines and of long ones in frost, in foot if it is
 installed, and in `script`, which only reads the pty: what the kernel takes.
+It also gives the latency from a key to the frame with its letter, median and
+worst of 50, as the test socket of borealis measures it.
 
 `tests/rec` holds what real programs wrote to a terminal (nvim, less, man,
 htop, git, ls) and the screen each one leaves, reviewed once by eye; a unit test

@@ -2,6 +2,7 @@
 frost=build/bench/frost
 picture=build/test/tools/picture
 B=$BOREALIS_DEV
+ask=$B/build/test/tools/ask
 if [ -z "$B" ] || [ ! -x "$B/build/test/tundra-borealis" ]; then
 	echo "no tundra-borealis built with its tests next to this one" >&2
 	exit 1
@@ -54,6 +55,26 @@ for d in short long; do
 	command -v foot >/dev/null && ft=$(best foot cat "$f")
 	printf '%-6s %6s ms %5s ms %5s ms\n' "$d" "$pty" "$fr" "$ft"
 done
+
+latency() {
+	"$@" sh -c "printf '\\033[2 q'; exec cat" >/dev/null 2>&1 &
+	pid=$!
+	sleep 1.5
+	for i in $(seq 50); do
+		"$ask" latency 30 | awk '$1 == "latency" { print $2 }'
+		sleep 0.05
+	done | sort -n | awk '{ a[NR] = $1 }
+		END { if (NR) printf "%6d us %6d us\n", a[int((NR + 1) / 2)], a[NR]
+		      else print "     -" }'
+	for k in "125 down" "14 down" "14 up" "125 up"; do
+		"$ask" key $k >/dev/null
+	done
+	wait "$pid" 2>/dev/null
+}
+
+printf '\n%-7s %9s %9s\n' latency median worst
+printf '%-7s %s\n' frost "$(latency "$frost")"
+command -v foot >/dev/null && printf '%-7s %s\n' foot "$(latency foot)"
 
 kill -TERM "$borealis"
 wait "$borealis" 2>/dev/null
