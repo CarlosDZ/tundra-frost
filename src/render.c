@@ -162,6 +162,10 @@ void render_margins(struct render *r, struct tdraw_canvas *c,
                     const struct view *v) {
 	uint32_t bg = render_color(r, v, COLOR_DEFAULT, 0);
 	int gw = v->cols * r->cw, gh = v->rows * r->ch;
+	if (gw > r->width - r->ox)
+		gw = r->width - r->ox;
+	if (gh > r->height - r->oy)
+		gh = r->height - r->oy;
 	tdraw_fill(c, 0, 0, r->width, r->oy, bg);
 	tdraw_fill(c, 0, r->oy + gh, r->width, r->height - r->oy - gh, bg);
 	tdraw_fill(c, 0, r->oy, r->ox, gh, bg);

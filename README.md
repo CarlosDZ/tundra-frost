@@ -21,6 +21,7 @@ its program are all it keeps.
 ## Requirements
 
 - libseccomp.
+- wayland-client, and to build, wayland-scanner and wayland-protocols.
 - tundra-libdraw, which paints the screen and reads the fonts and the theme.
   Built checkouts of tundra-libconf, tundra-libtoa and tundra-libdraw next to
   this one, or where `CONF_DEV`, `TOA_DEV` and `DRAW_DEV` say, are used
@@ -35,7 +36,11 @@ usage.
 
 `make check-unit` builds and runs the unit tests with ASan and UBSan.
 `make check` adds the tests of the built programs: `tests/tools/client` plays
-the window for a `frost-term` built with the sanitizers.
+the window for a `frost-term` built with the sanitizers, and a built
+tundra-borealis next to this one (`BOREALIS_DEV`), without a screen, takes the
+window. `tests/ref/window.txt` is a screen and `window.png` how it is painted,
+reviewed once by eye; the window has to show the same. `make bench` times a
+`cat` of 100 MB in frost and, if it is installed, in foot.
 
 `tests/rec` holds what real programs wrote to a terminal (nvim, less, man,
 htop, git, ls) and the screen each one leaves, reviewed once by eye; a unit test

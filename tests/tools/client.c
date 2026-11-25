@@ -23,7 +23,7 @@ static unsigned number;
 
 struct opts {
 	char *input, *name;
-	int rc, rr, wait_ms, detach, close_it;
+	int rc, rr, wait_ms, late_ms, detach, close_it;
 };
 
 static void unescape(char *s) {
@@ -63,6 +63,15 @@ static void print_screen(void) {
 	printf("cursor %d,%d\n", h->x, h->y);
 }
 
+static void print_dirty(void) {
+	const struct shm_head *h = (const void *)map;
+	printf("dirty");
+	for (int y = 0; y < h->rows; y++)
+		if (map[h->dirty_off + y])
+			printf(" %d", y);
+	printf("\n");
+}
+
 static int parse(int argc, char **argv, int i, struct opts *o) {
 	for (; i < argc && strcmp(argv[i], "--") != 0; i++) {
 		if (strcmp(argv[i], "-i") == 0 && i + 1 < argc)
@@ -71,6 +80,8 @@ static int parse(int argc, char **argv, int i, struct opts *o) {
 			o->name = argv[++i];
 		else if (strcmp(argv[i], "-w") == 0 && i + 1 < argc)
 			o->wait_ms = atoi(argv[++i]);
+		else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc)
+			o->late_ms = atoi(argv[++i]);
 		else if (strcmp(argv[i], "-r") == 0 && i + 2 < argc)
 			o->rc = atoi(argv[i + 1]), o->rr = atoi(argv[i + 2]), i += 2;
 		else if (strcmp(argv[i], "-d") == 0)
@@ -108,7 +119,14 @@ static void session(int fd, const struct opts *o, int attached) {
 		} else if (type == MSG_DAMAGE) {
 			uint32_t seq;
 			memcpy(&seq, buf, sizeof(seq));
-			msg_send(fd, MSG_ACK, &seq, sizeof(seq), -1);
+			if (first && o->late_ms) {
+				poll(NULL, 0, o->late_ms);
+				msg_send(fd, MSG_ACK, &seq, sizeof(seq), -1);
+				poll(NULL, 0, 50);
+				print_dirty();
+			} else {
+				msg_send(fd, MSG_ACK, &seq, sizeof(seq), -1);
+			}
 			if (!first)
 				continue;
 			first = 0;

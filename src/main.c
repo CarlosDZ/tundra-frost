@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "cli.h"
+#include "win.h"
 
 int main(int argc, char **argv) {
 	struct cli c;
@@ -17,6 +18,5 @@ int main(int argc, char **argv) {
 	case CLI_RUN:
 		break;
 	}
-	fprintf(stderr, "frost: no terminal yet\n");
-	return 1;
+	return win_run(&c);
 }

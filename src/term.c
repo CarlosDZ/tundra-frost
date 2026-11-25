@@ -269,6 +269,12 @@ static void from_window(void) {
 			resize((struct msg_resize *)t.buf);
 		break;
 	case MSG_ACK: {
+		uint32_t seq;
+		if ((size_t)n != sizeof(seq))
+			break;
+		memcpy(&seq, t.buf, sizeof(seq));
+		if (seq != head()->seq)
+			break;
 		uint8_t *dirty = t.cur.base + head()->dirty_off;
 		memset(dirty, 0, (size_t)t.scr.rows);
 		t.waiting = 0;

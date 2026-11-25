@@ -38,4 +38,7 @@ check "$($client $term 20 3 -- sh -c 'printf "\033[c"; sleep 0.2' | tail -1)" \
 
 check "$($client $term 20 3 -- sh -c 'seq 1 3000 | tail -1' | head -1)" "|3000" \
 	"a lot of output gets through"
+
+check "$($client $term 20 3 -l 400 -- sh -c 'printf a; sleep 0.2; printf "\nb\nc"; sleep 0.5' | head -1)" \
+	"dirty 0 1 2" "an answer for a screen written since keeps its rows dirty"
 exit $fail
