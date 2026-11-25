@@ -4,6 +4,8 @@
 #include "vt.c"
 #include "width.c"
 
+#include "lens.h"
+
 static struct scr s;
 static struct hist h;
 
@@ -173,7 +175,7 @@ static void test_fuzz(void) {
 		x ^= x << 13, x ^= x >> 17, x ^= x << 5;
 		scr_resize(&s, 1 + (int)(x % 40), 1 + (int)((x >> 8) % 12), &h);
 		ok = s.x >= 0 && s.x < s.cols && s.y >= 0 && s.y < s.rows &&
-		     hist_bytes(&h) <= h.limit;
+		     hist_bytes(&h) <= h.limit && lens_hold(&s);
 		for (int yy = 0; yy < s.rows && ok; yy++)
 			for (int xx = 0; xx < s.cols; xx++) {
 				struct cell *c = scr_cell(&s, xx, yy);

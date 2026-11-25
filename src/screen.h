@@ -82,6 +82,7 @@ struct saved {
 struct grid {
 	struct cell *cells;
 	uint8_t *lines;
+	uint16_t *len;
 	uint16_t *map;
 	struct saved saved;
 	int keys[KEY_STACK];

@@ -21,7 +21,8 @@ mkdir -p "$XDG_CONFIG_HOME/tundra" "$XDG_CONFIG_HOME/foot"
 "$picture" font "$WORK/test.bdf"
 printf 'mono = %s/test.bdf\n' "$WORK" >"$XDG_CONFIG_HOME/tundra/fonts"
 printf '[main]\nfont=monospace:pixelsize=24\n' >"$XDG_CONFIG_HOME/foot/foot.ini"
-seq 1 30000000 | head -c 100000000 >"$WORK/big"
+seq 1 30000000 | head -c 100000000 >"$WORK/short"
+head -c 75000000 /dev/urandom | base64 -w 100 >"$WORK/long"
 
 "$B/build/test/tundra-borealis" >"$WORK/borealis.log" 2>&1 &
 borealis=$!
@@ -33,23 +34,26 @@ now() {
 	date +%s%N
 }
 
-run() {
-	t0=$(now)
-	"$@" cat "$WORK/big"
-	rc=$?
-	t1=$(now)
-	ms=$(((t1 - t0) / 1000000))
-	printf '%-6s %6d ms  %4d MB/s  exit %d\n' "$(basename "$1")" "$ms" \
-		$((100000 / (ms > 0 ? ms : 1))) "$rc"
+best() {
+	b=
+	for i in 1 2 3; do
+		t0=$(now)
+		"$@" >/dev/null 2>&1
+		ms=$((($(now) - t0) / 1000000))
+		[ -z "$b" ] || [ "$ms" -lt "$b" ] && b=$ms
+	done
+	echo "$b"
 }
 
-for i in 1 2 3; do
-	run "$frost"
-	if command -v foot >/dev/null; then
-		run foot
-	fi
+printf '%-6s %8s %8s %8s\n' data script frost foot
+for d in short long; do
+	f=$WORK/$d
+	pty=$(best script -qfc "cat $f" /dev/null)
+	fr=$(best "$frost" cat "$f")
+	ft=-
+	command -v foot >/dev/null && ft=$(best foot cat "$f")
+	printf '%-6s %6s ms %5s ms %5s ms\n' "$d" "$pty" "$fr" "$ft"
 done
-command -v foot >/dev/null || echo "foot is not installed"
 
 kill -TERM "$borealis"
 wait "$borealis" 2>/dev/null

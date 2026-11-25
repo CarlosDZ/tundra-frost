@@ -37,6 +37,17 @@ uint8_t scr_line(struct scr *s, int y) { return *line(s, y); }
 
 static struct cell *row(struct scr *s, int y) { return scr_cell(s, 0, y); }
 
+static uint16_t *len_of(struct scr *s, int y) {
+	struct grid *g = cur(s);
+	return &g->len[g->map[y]];
+}
+
+static void touch(struct scr *s, int y, int x1) {
+	uint16_t *n = len_of(s, y);
+	if (*n < x1)
+		*n = (uint16_t)x1;
+}
+
 static void dirty(struct scr *s, int y0, int y1) {
 	for (int y = y0; y <= y1; y++)
 		s->dirty[y] = 1;
@@ -81,8 +92,18 @@ static void fill(struct scr *s, int y, int x0, int x1) {
 	unwide(s, x0, y);
 	unwide(s, x1 - 1, y);
 	struct cell b = blank(s), *c = row(s, y);
-	for (int x = x0; x < x1; x++)
-		c[x] = b;
+	uint16_t *n = len_of(s, y);
+	if (b.bg == COLOR_DEFAULT) {
+		int end = x1 < *n ? x1 : *n;
+		if (x0 < end)
+			memset(c + x0, 0, (size_t)(end - x0) * sizeof(*c));
+		if (x0 < *n && x1 >= *n)
+			*n = (uint16_t)x0;
+	} else {
+		for (int x = x0; x < x1; x++)
+			c[x] = b;
+		touch(s, y, x1);
+	}
 	s->dirty[y] = 1;
 }
 
@@ -123,8 +144,11 @@ static void scroll_up(struct scr *s, int top, int bot, int n, int history) {
 	if (n <= 0)
 		return;
 	if (history && !s->alt && top == 0 && s->hooks.scrollout)
-		for (int i = 0; i < n; i++)
-			s->hooks.scrollout(s->ctx, row(s, i), s->cols, *line(s, i));
+		for (int i = 0; i < n; i++) {
+			uint8_t fl = *line(s, i);
+			int k = fl & LINE_WRAPPED ? s->cols : *len_of(s, i);
+			s->hooks.scrollout(s->ctx, row(s, i), k, fl);
+		}
 	rotate(s, top, bot, n, 1);
 	clear_rows(s, bot - n + 1, bot);
 	dirty(s, top, bot);
@@ -191,6 +215,7 @@ static void insert_cells(struct scr *s, int n) {
 	if (n <= 0)
 		return;
 	struct cell *c = row(s, s->y), b = blank(s);
+	uint16_t *len = len_of(s, s->y);
 	if (c[s->x].attr & ATTR_WIDE_TAIL) {
 		if (s->x > 0)
 			c[s->x - 1] = b;
@@ -202,6 +227,10 @@ static void insert_cells(struct scr *s, int n) {
 		c[x] = b;
 	if (c[s->cols - 1].attr & ATTR_WIDE)
 		c[s->cols - 1] = b;
+	if (*len > s->x)
+		*len = (uint16_t)(*len + n < s->cols ? *len + n : s->cols);
+	if (b.bg != COLOR_DEFAULT)
+		touch(s, s->y, s->x + n);
 	s->dirty[s->y] = 1;
 }
 
@@ -220,6 +249,11 @@ static void delete_cells(struct scr *s, int n) {
 		c[x] = b;
 	if (c[s->x].attr & ATTR_WIDE_TAIL)
 		c[s->x] = b;
+	uint16_t *len = len_of(s, s->y);
+	if (b.bg != COLOR_DEFAULT)
+		*len = (uint16_t)s->cols;
+	else if (*len > s->x)
+		*len = (uint16_t)(*len - n > s->x ? *len - n : s->x);
 	s->dirty[s->y] = 1;
 }
 
@@ -256,6 +290,7 @@ static void print(struct scr *s, uint32_t cp) {
 			return;
 		fill(s, s->y, s->x, s->cols);
 		scr_cell(s, s->x, s->y)->attr |= ATTR_PAD;
+		touch(s, s->y, s->cols);
 		wrap(s);
 	}
 	if (s->insert)
@@ -270,6 +305,7 @@ static void print(struct scr *s, uint32_t cp) {
 		put_cell(s, c + 1, 0);
 		c[1].attr |= ATTR_WIDE_TAIL;
 	}
+	touch(s, s->y, s->x + w);
 	s->dirty[s->y] = 1;
 	s->last = cp;
 	if (s->x + w >= s->cols) {
@@ -302,6 +338,7 @@ static void print_run(struct scr *s, const uint8_t *p, size_t n) {
 		struct cell *c = scr_cell(s, s->x, s->y);
 		for (size_t i = 0; i < k; i++)
 			put_cell(s, c + i, p[i]);
+		touch(s, s->y, s->x + (int)k);
 		s->dirty[s->y] = 1;
 		s->last = p[k - 1];
 		p += k;
@@ -403,19 +440,34 @@ static void full_reset(struct scr *s) {
 
 static size_t block_size(int cols, int rows) {
 	size_t n = (size_t)cols * rows;
-	return 2 * n * sizeof(struct cell) + 2 * (size_t)rows * sizeof(uint16_t) +
+	return 2 * n * sizeof(struct cell) + 4 * (size_t)rows * sizeof(uint16_t) +
 	       2 * (size_t)rows;
 }
 
 static void block_layout(void *block, int cols, int rows, struct cell *cells[2],
-                         uint16_t *maps[2], uint8_t *lines[2]) {
+                         uint16_t *maps[2], uint16_t *lens[2],
+                         uint8_t *lines[2]) {
 	size_t n = (size_t)cols * rows;
 	cells[0] = block;
 	cells[1] = cells[0] + n;
 	maps[0] = (uint16_t *)(cells[1] + n);
 	maps[1] = maps[0] + rows;
-	lines[0] = (uint8_t *)(maps[1] + rows);
+	lens[0] = maps[1] + rows;
+	lens[1] = lens[0] + rows;
+	lines[0] = (uint8_t *)(lens[1] + rows);
 	lines[1] = lines[0] + rows;
+}
+
+static void measure(const struct cell *cells, uint16_t *len, int cols,
+                    int rows) {
+	static const struct cell zero;
+	for (int r = 0; r < rows; r++) {
+		const struct cell *c = cells + (size_t)r * cols;
+		int n = cols;
+		while (n > 0 && !memcmp(&c[n - 1], &zero, sizeof(zero)))
+			n--;
+		len[r] = (uint16_t)n;
+	}
 }
 
 int scr_init(struct scr *s, int cols, int rows) {
@@ -431,13 +483,14 @@ int scr_init(struct scr *s, int cols, int rows) {
 		return -1;
 	}
 	struct cell *cells[2];
-	uint16_t *maps[2];
+	uint16_t *maps[2], *lens[2];
 	uint8_t *lines[2];
-	block_layout(s->block, cols, rows, cells, maps, lines);
+	block_layout(s->block, cols, rows, cells, maps, lens, lines);
 	for (int i = 0; i < 2; i++) {
 		s->grid[i].cells = cells[i];
 		s->grid[i].map = maps[i];
 		s->grid[i].lines = lines[i];
+		s->grid[i].len = lens[i];
 		for (int y = 0; y < rows; y++)
 			maps[i][y] = (uint16_t)y;
 	}
@@ -1020,6 +1073,8 @@ static void esc(struct scr *s, const struct vt_seq *q) {
 					*c = (struct cell){0};
 					c->cp = 'E';
 				}
+			for (int y = 0; y < s->rows; y++)
+				touch(s, y, s->cols);
 			s->top = 0, s->bot = s->rows - 1;
 			move_to(s, 0, 0);
 			dirty(s, 0, s->rows - 1);
@@ -1408,13 +1463,13 @@ int scr_resize(struct scr *s, int cols, int rows, struct hist *h) {
 	struct reflow f = {0};
 	void *block = calloc(1, block_size(cols, rows));
 	struct cell *cells[2] = {NULL, NULL};
-	uint16_t *maps[2] = {NULL, NULL};
+	uint16_t *maps[2] = {NULL, NULL}, *lens[2] = {NULL, NULL};
 	uint8_t *lines[2] = {NULL, NULL};
 	uint8_t *tabs = calloc((size_t)cols, 1), *dirt = calloc((size_t)rows, 1);
 	int ret = -1, alt = s->alt;
 	if (!block || !tabs || !dirt)
 		goto out;
-	block_layout(block, cols, rows, cells, maps, lines);
+	block_layout(block, cols, rows, cells, maps, lens, lines);
 
 	struct saved *sv = &s->grid[0].saved;
 	int cx = alt ? sv->x : s->x, cy = alt ? sv->y : s->y;
@@ -1542,9 +1597,11 @@ int scr_resize(struct scr *s, int cols, int rows, struct hist *h) {
 	free(s->block);
 	s->block = block, block = NULL;
 	for (int i = 0; i < 2; i++) {
+		measure(cells[i], lens[i], cols, rows);
 		s->grid[i].cells = cells[i];
 		s->grid[i].lines = lines[i];
 		s->grid[i].map = maps[i];
+		s->grid[i].len = lens[i];
 	}
 	free(s->tabs);
 	free(s->dirty);

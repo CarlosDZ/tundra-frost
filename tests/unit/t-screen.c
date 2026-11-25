@@ -4,6 +4,8 @@
 #include "vt.c"
 #include "width.c"
 
+#include "lens.h"
+
 static struct scr s;
 static char out_lines[8][64];
 static int nout, nbell, nclip;
@@ -40,8 +42,12 @@ static void start(int cols, int rows) {
 	clip[0] = title[0] = 0;
 }
 
+static const char *lens_broken;
+
 static void feed(const char *str) {
 	scr_feed(&s, (const uint8_t *)str, strlen(str));
+	if (!lens_broken && !lens_hold(&s))
+		lens_broken = str;
 }
 
 static const char *text(int y) {
@@ -321,6 +327,31 @@ static void test_fuzz(void) {
 		}
 	CHECK(ok, "2 MiB of random bytes leave the cursor inside and no half "
 	          "letter");
+
+	static const char *const edits[] = {
+	    "\x1b[%d@",  "\x1b[%dP", "\x1b[%dX", "\x1b[%dK", "\x1b[%dJ",
+	    "\x1b[%dL",  "\x1b[%dM", "\x1b[%dS", "\x1b[%dT", "\x1b[%d;%dH",
+	    "\x1b[4%dm", "\x1b[%dm", "\x1b#8",   "\r\n",     "\xe6\x97\xa5",
+	    "e\xcc\x81", "%.*s"};
+	const int nedits = (int)(sizeof(edits) / sizeof(edits[0]));
+	start(17, 7);
+	int held = 1;
+	for (int round = 0; round < 200000 && held; round++) {
+		x ^= x << 13, x ^= x >> 17, x ^= x << 5;
+		int a = (int)(x >> 8 & 15), b = (int)(x >> 12 & 31);
+		char op[64];
+		const char *e = edits[x % (uint32_t)nedits];
+		if (strstr(e, "%.*s"))
+			snprintf(op, sizeof(op), e, 1 + b % 20, "abcdefghijklmnopqrstu");
+		else if (strstr(e, "4%d"))
+			snprintf(op, sizeof(op), e, a % 8);
+		else
+			snprintf(op, sizeof(op), e, a % 10, 1 + b % 20);
+		scr_feed(&s, (const uint8_t *)op, strlen(op));
+		s.reply_len = 0;
+		held = lens_hold(&s);
+	}
+	CHECK(held, "random edits leave every row zero past its length");
 }
 
 int main(void) {
@@ -333,5 +364,8 @@ int main(void) {
 	test_osc();
 	test_fuzz();
 	scr_free(&s);
+	CHECK(!lens_broken, "every test leaves every row zero past its length");
+	if (lens_broken)
+		printf("# after %s\n", lens_broken);
 	return test_summary();
 }

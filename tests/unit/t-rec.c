@@ -5,6 +5,9 @@
 #include "width.c"
 
 #include "dump.h"
+#include "lens.h"
+
+static int lens_broken;
 
 #include <stdlib.h>
 
@@ -40,6 +43,7 @@ static char *replay(const char *rec, size_t len, int cols, int rows) {
 		if (s.alt)
 			was_alt = 1;
 	}
+	lens_broken |= !lens_hold(&s);
 	char *out;
 	size_t size;
 	FILE *f = open_memstream(&out, &size);
@@ -76,5 +80,6 @@ int main(void) {
 	check("gitstatus-120x36", 120, 36);
 	check("ls-120x36", 120, 36);
 	check("styles-120x36", 120, 36);
+	CHECK(!lens_broken, "the recordings leave every row zero past its length");
 	return test_summary();
 }
