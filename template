@@ -1,0 +1,12 @@
+# Template file for 'tundra-frost'
+pkgname=tundra-frost
+version=0.1
+revision=0
+build_style=gnu-makefile
+make_check_target=check-unit
+short_desc="Terminal of Tundra OS"
+maintainer="Tundra OS <CarlosDZ@tundra>"
+license="GPL-3.0-or-later"
+homepage="https://github.com/CarlosDZ/tundra-frost"
+distfiles="https://github.com/CarlosDZ/tundra-frost/archive/refs/tags/v${version}_${revision}.tar.gz"
+checksum=@@CHECKSUM@@
