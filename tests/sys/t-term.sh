@@ -42,6 +42,21 @@ check "$($client $term 20 3 -- sh -c 'seq 1 3000 | tail -1' | head -1)" "|3000" 
 check "$($client $term 20 3 -l 400 -- sh -c 'printf a; sleep 0.2; printf "\nb\nc"; sleep 0.5' | head -1)" \
 	"dirty 0 1 2" "a window that answers late gets what was written meanwhile"
 
+check "$($client $term 20 3 -w 300 -b 2 -- sh -c 'seq 1 10; sleep 0.5')" "|7
+|8
+|9
+cursor 0,4
+exit 0" "back in the history, the view shows its rows over the screen"
+
+check "$($client $term 20 3 -w 300 -b 2 -- sh -c 'seq 1 10; sleep 0.4; seq 11 12; sleep 0.4')" "|7
+|8
+|9
+cursor 0,5
+exit 0" "and keeps showing them while the program writes on"
+
+check "$($client $term 20 3 -w 300 -b 50 -- sh -c 'seq 1 10; sleep 0.5' | head -1)" "|1" \
+	"it stops at the first line"
+
 start=$(date +%s%N)
 last=$($client $term 20 3 -s 200 -- seq 1 100000 | grep -c '^|100000$')
 ms=$((($(date +%s%N) - start) / 1000000))

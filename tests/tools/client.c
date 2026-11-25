@@ -23,7 +23,7 @@ static unsigned number;
 
 struct opts {
 	char *input, *name;
-	int rc, rr, wait_ms, late_ms, slow_ms, detach, close_it;
+	int rc, rr, wait_ms, late_ms, slow_ms, back, detach, close_it;
 };
 
 static void unescape(char *s) {
@@ -82,6 +82,8 @@ static int parse(int argc, char **argv, int i, struct opts *o) {
 			o->late_ms = atoi(argv[++i]);
 		else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc)
 			o->slow_ms = atoi(argv[++i]);
+		else if (strcmp(argv[i], "-b") == 0 && i + 1 < argc)
+			o->back = atoi(argv[++i]);
 		else if (strcmp(argv[i], "-r") == 0 && i + 2 < argc)
 			o->rc = atoi(argv[i + 1]), o->rr = atoi(argv[i + 2]), i += 2;
 		else if (strcmp(argv[i], "-d") == 0)
@@ -143,6 +145,10 @@ static void session(int fd, const struct opts *o, int attached) {
 				msg_send(fd, MSG_NAME, o->name, strlen(o->name), -1);
 			if (o->wait_ms)
 				poll(NULL, 0, o->wait_ms);
+			if (o->back) {
+				int32_t rows = o->back;
+				msg_send(fd, MSG_SCROLL, &rows, sizeof(rows), -1);
+			}
 			if (o->detach) {
 				msg_send(fd, MSG_DETACH, NULL, 0, -1);
 				printf("number %u\n", number);

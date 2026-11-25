@@ -237,6 +237,19 @@ check "$(hex "$WORK/wheelm")" \
 	"1b 5b 3c 36 34 3b 35 3b 33 4d 1b 5b 3c 36 34 3b 35 3b 33 4d" \
 	"to a program that asks, the touchpad is the wheel, a line a cell"
 
+FROST_TEST_DUMP=$WORK/back.png $frost --app-id back sh -c \
+	'echo B; for i in $(seq 100); do echo A; done; sleep 1.5' &
+win=$!
+wait_window back
+sleep 0.3
+point back
+"$ask" scroll -100000 >/dev/null
+wait_end $win
+printf 'B\r\nA\r\nA\r\nA\r\nA\r\nA\033[?25l' >"$WORK/back.txt"
+"$picture" paint "$WORK/back.txt" 20 6 "$WORK/back-want.png"
+check "$("$picture" same "$WORK/back.png" "$WORK/back-want.png")" "" \
+	"the touchpad goes back to the first line of the history"
+
 $frost --app-id frost-fall sh -c 'printf tres; sleep 30' &
 win=$!
 wait_window frost-fall

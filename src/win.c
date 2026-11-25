@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/input-event-codes.h>
 #include <poll.h>
 #include <signal.h>
@@ -348,6 +349,11 @@ static int shortcut(const struct key *k) {
 	return c == 'c' || c == 'v' || c == ' ' ? (int)c : 0;
 }
 
+static void scroll_history(int32_t rows) {
+	if (w.sock >= 0)
+		msg_send(w.sock, MSG_SCROLL, &rows, sizeof(rows), -1);
+}
+
 static void on_key(uint32_t evdev, int type) {
 	struct key k;
 	if (kbd_key(&w.kbd, evdev, type, &k) < 0 || shortcut(&k))
@@ -357,7 +363,10 @@ static void on_key(uint32_t evdev, int type) {
 	if (h)
 		m = (struct key_modes){h->keys, h->app_cursor, h->newline};
 	char out[KEY_OUT_MAX];
-	input(out, key_encode(&k, &m, out));
+	size_t n = key_encode(&k, &m, out);
+	if (n && h && h->offset)
+		scroll_history(INT32_MIN);
+	input(out, n);
 }
 
 static void kb_keymap(void *data, struct wl_keyboard *kb, uint32_t format,
@@ -585,7 +594,9 @@ static void ptr_frame(void *data, struct wl_pointer *p) {
 	if (h->mouse) {
 		for (int i = 0; i < abs(notches); i++)
 			report(MOUSE_WHEEL, down ? MB_WHEEL_DOWN : MB_WHEEL_UP);
-	} else if (h->alt && h->alt_scroll) {
+	} else if (!h->alt) {
+		scroll_history(-lines);
+	} else if (h->alt_scroll) {
 		struct key k = {down ? FKEY_DOWN : FKEY_UP, 0, 0, 0, KEY_PRESS, ""};
 		struct key_modes m = {h->keys, h->app_cursor, h->newline};
 		char out[KEY_OUT_MAX];

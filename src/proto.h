@@ -14,6 +14,7 @@ enum msg_type {
 	MSG_NAME,
 	MSG_ATTACH,
 	MSG_QUERY,
+	MSG_SCROLL,
 
 	MSG_SHM = 32,
 	MSG_DAMAGE,

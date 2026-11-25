@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -39,6 +40,9 @@ static struct term {
 	pid_t pid;
 	struct mapping cur;
 	int waiting, changed, full, synced;
+	int offset;
+	struct cell *line;
+	int *starts;
 	long long sync_since;
 	int lsock, dirfd;
 	unsigned number;
@@ -115,10 +119,65 @@ static void on_cwd(void *ctx, const char *uri, size_t len) {
 static void on_scrollout(void *ctx, const struct cell *c, int cols,
                          uint8_t flags) {
 	(void)ctx;
+	if (t.offset)
+		t.offset++;
 	hist_push(&t.hist, c, cols, flags);
 }
 static void on_seal(void *ctx) { (void)ctx, hist_seal(&t.hist); }
-static void on_clear(void *ctx) { (void)ctx, hist_clear(&t.hist); }
+static void on_clear(void *ctx) {
+	(void)ctx, hist_clear(&t.hist);
+	t.offset = 0;
+}
+
+static int clamp_offset(long want) {
+	if (want <= 0)
+		return 0;
+	long acc = 0;
+	for (size_t i = hist_count(&t.hist); i > 0 && acc < want;)
+		acc += hist_rows(&t.hist, --i, t.scr.cols);
+	return (int)(acc < want ? acc : want > INT_MAX ? INT_MAX : want);
+}
+
+static int copy_view(struct cell *cells, uint8_t *lines) {
+	struct scr *s = &t.scr;
+	int cols = s->cols, rows = s->rows, y = 0;
+	size_t n = hist_count(&t.hist), i = n;
+	int acc = 0;
+	if (!t.line)
+		t.line = malloc(HIST_LINE_MAX * sizeof(*t.line));
+	if (!t.starts)
+		t.starts = malloc((HIST_LINE_MAX + 1) * sizeof(*t.starts));
+	if (!t.line || !t.starts)
+		t.offset = 0;
+	while (i > 0 && acc < t.offset)
+		acc += hist_rows(&t.hist, --i, cols);
+	if (acc < t.offset)
+		t.offset = acc;
+	int skip = acc - t.offset;
+	for (; t.offset && i < n && y < rows; i++, skip = 0) {
+		uint8_t fl;
+		int k = hist_get(&t.hist, i, t.line, HIST_LINE_MAX, &fl);
+		if (k < 0)
+			break;
+		int nr = split_rows(t.line, k, cols, t.starts, HIST_LINE_MAX + 1);
+		for (int r = skip; r < nr && y < rows; r++, y++) {
+			int a = t.starts[r], b = r + 1 < nr ? t.starts[r + 1] : k;
+			struct cell *row = cells + (size_t)y * cols;
+			memset(row, 0, (size_t)cols * sizeof(*row));
+			memcpy(row, t.line + a, (size_t)(b - a) * sizeof(*row));
+			lines[y] =
+			    (uint8_t)((r + 1 < nr ? LINE_WRAPPED : 0) | (r == 0 ? fl : 0));
+		}
+	}
+	int shown = y;
+	struct grid *g = &s->grid[s->alt];
+	for (int sy = 0; y < rows; y++, sy++) {
+		memcpy(cells + (size_t)y * cols, g->cells + (size_t)g->map[sy] * cols,
+		       (size_t)cols * sizeof(*cells));
+		lines[y] = g->lines[g->map[sy]];
+	}
+	return shown;
+}
 
 static void publish(int all) {
 	struct shm_head *h = head();
@@ -130,18 +189,27 @@ static void publish(int all) {
 	size_t row = (size_t)s->cols * sizeof(*cells);
 
 	__atomic_store_n(&h->seq, h->seq + 1, __ATOMIC_RELEASE);
-	for (int y = 0; y < s->rows; y++) {
-		if (!all && !s->dirty[y])
-			continue;
-		memcpy(cells + (size_t)y * s->cols,
-		       g->cells + (size_t)g->map[y] * s->cols, row);
-		lines[y] = g->lines[g->map[y]];
-		dirty[y] = 1;
-		s->dirty[y] = 0;
-	}
-	h->x = (uint16_t)s->x, h->y = (uint16_t)s->y;
+	if (s->alt)
+		t.offset = 0;
+	int shown = 0;
+	if (t.offset || h->offset) {
+		shown = copy_view(cells, lines);
+		memset(dirty, 1, (size_t)s->rows);
+		memset(s->dirty, 0, (size_t)s->rows);
+	} else
+		for (int y = 0; y < s->rows; y++) {
+			if (!all && !s->dirty[y])
+				continue;
+			memcpy(cells + (size_t)y * s->cols,
+			       g->cells + (size_t)g->map[y] * s->cols, row);
+			lines[y] = g->lines[g->map[y]];
+			dirty[y] = 1;
+			s->dirty[y] = 0;
+		}
+	h->x = (uint16_t)s->x, h->y = (uint16_t)(s->y + shown);
 	h->alt = (uint8_t)s->alt, h->pending = (uint8_t)s->pending;
-	h->cursor_visible = (uint8_t)s->cursor_visible;
+	h->cursor_visible = (uint8_t)(s->cursor_visible && s->y + shown < s->rows);
+	h->offset = (uint32_t)t.offset;
 	h->cursor_shape = (uint8_t)s->cursor_shape;
 	h->cursor_blink = (uint8_t)s->cursor_blink;
 	h->reverse = (uint8_t)s->reverse, h->sync = (uint8_t)s->sync;
@@ -227,6 +295,7 @@ static void resize(const struct msg_resize *r) {
 		return;
 	t.scr.cell_w = r->cell_w, t.scr.cell_h = r->cell_h;
 	if (r->cols != t.scr.cols || r->rows != t.scr.rows) {
+		t.offset = 0;
 		if (shm_make(r->cols, r->rows) < 0)
 			return;
 		if (scr_resize(&t.scr, r->cols, r->rows, &t.hist) < 0) {
@@ -291,6 +360,18 @@ static void from_window(void) {
 			t.name[n] = 0;
 		}
 		break;
+	case MSG_SCROLL: {
+		int32_t d;
+		if ((size_t)n != sizeof(d) || t.scr.alt)
+			break;
+		memcpy(&d, t.buf, sizeof(d));
+		int off = d == INT32_MIN ? 0 : clamp_offset((long)t.offset + d);
+		if (off != t.offset) {
+			t.offset = off;
+			t.changed = 1;
+		}
+		break;
+	}
 	}
 }
 
