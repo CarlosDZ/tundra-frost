@@ -20,7 +20,11 @@ its program are all it keeps.
 
 ## Requirements
 
-libseccomp.
+- libseccomp.
+- tundra-libdraw, which paints the screen and reads the fonts and the theme.
+  Built checkouts of tundra-libconf, tundra-libtoa and tundra-libdraw next to
+  this one, or where `CONF_DEV`, `TOA_DEV` and `DRAW_DEV` say, are used
+  instead of the installed ones.
 
 ## Exit status
 

@@ -2,10 +2,10 @@
 pkgname=tundra-frost
 version=0.1
 revision=0
-depends="libseccomp"
+depends="libseccomp tundra-libdraw>=0.5_0"
 build_style=gnu-makefile
 make_check_target=check-unit
-makedepends="libseccomp-devel"
+makedepends="libseccomp-devel tundra-libdraw-devel"
 short_desc="Terminal of Tundra OS"
 maintainer="Tundra OS <CarlosDZ@tundra>"
 license="GPL-3.0-or-later"
