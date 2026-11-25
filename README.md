@@ -10,6 +10,10 @@ frost [--app-id name] [program [argument...]]
 frost --version
 ```
 
+Each terminal runs in its own process, `frost-term`, installed in
+`/usr/libexec`; frost starts it. They share the screen through a memfd and talk
+over a socket.
+
 ## Exit status
 
 `0` the program ended well, `1` it failed or frost could not start, `2` invalid
@@ -18,7 +22,8 @@ usage.
 ## Tests
 
 `make check-unit` builds and runs the unit tests with ASan and UBSan.
-`make check` adds the tests of the built program.
+`make check` adds the tests of the built programs: `tests/tools/client` plays
+the window for a `frost-term` built with the sanitizers.
 
 `tests/rec` holds what real programs wrote to a terminal (nvim, less, man,
 htop, git, ls) and the screen each one leaves, reviewed once by eye; a unit test

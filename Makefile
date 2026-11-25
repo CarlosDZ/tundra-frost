@@ -8,6 +8,7 @@ TUNDRA_INC  = -Isrc
 CFLAGS ?= -Wall -Wextra -O2
 
 TARGET = frost
+TERM_PROG = frost-term
 
 BUILD = build
 SRCS = $(wildcard src/*.c)
@@ -15,10 +16,13 @@ HDRS = $(wildcard src/*.h)
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 DEPS = $(OBJS:.o=.d)
 
-all: $(TARGET)
+all: $(TARGET) $(TERM_PROG)
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS)
+$(TARGET): $(filter-out $(BUILD)/term.o,$(OBJS))
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+$(TERM_PROG): $(filter-out $(BUILD)/main.o,$(OBJS))
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 $(BUILD)/%.o: src/%.c
 	@mkdir -p $(dir $@)
@@ -30,7 +34,7 @@ $(BUILD)/%.o: src/%.c
 $(OBJS): Makefile metapkg
 
 clean:
-	rm -rf $(BUILD) $(TARGET)
+	rm -rf $(BUILD) $(TARGET) $(TERM_PROG)
 
 TEST_BUILD = $(BUILD)/test
 UNIT_FLAGS = -g -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -55,7 +59,15 @@ check-unit: $(UNIT_TESTS)
 	@rc=0; for t in $(UNIT_TESTS); do echo "# $$t"; $$t || rc=1; done; \
 		exit $$rc
 
-check: check-unit $(TARGET)
+TEST_TERM = $(TEST_BUILD)/frost-term
+TERM_SRCS = $(filter-out src/main.c,$(SRCS))
+
+$(TEST_TERM): $(TERM_SRCS) $(HDRS)
+	@mkdir -p $(dir $@)
+	$(CC) $(TUNDRA_STD) $(CFLAGS) $(UNIT_FLAGS) $(TUNDRA_INC) $(TUNDRA_DEFS) \
+		-o $@ $(TERM_SRCS)
+
+check: check-unit $(TARGET) $(TERM_PROG) $(TEST_TERM) $(TEST_TOOLS)
 	@sh tests/sys/run.sh
 
 .PHONY: all install uninstall clean check check-unit tools
@@ -63,10 +75,12 @@ check: check-unit $(TARGET)
 PREFIX ?= /usr
 DESTDIR ?=
 
-install: $(TARGET)
+install: $(TARGET) $(TERM_PROG)
 	install -Dm755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(TARGET)
+	install -Dm755 $(TERM_PROG) $(DESTDIR)$(PREFIX)/libexec/$(TERM_PROG)
 	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/tundra-frost/LICENSE
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
+	rm -f $(DESTDIR)$(PREFIX)/libexec/$(TERM_PROG)
 	rm -rf $(DESTDIR)$(PREFIX)/share/licenses/tundra-frost
