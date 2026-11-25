@@ -1,5 +1,5 @@
 #!/bin/sh
-term=build/test/frost-term
+term=${FROST_TERM:-build/test/frost-term}
 client=build/test/tools/client
 XDG_RUNTIME_DIR=$(mktemp -d)
 export XDG_RUNTIME_DIR

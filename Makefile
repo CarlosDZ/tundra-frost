@@ -4,6 +4,7 @@ VERSION = $(shell grep '^version=' metapkg | cut -d= -f2)
 TUNDRA_STD  = -std=c11
 TUNDRA_DEFS = -D_GNU_SOURCE -DTUNDRA_FROST_VERSION=\"$(VERSION)\"
 TUNDRA_INC  = -Isrc
+TUNDRA_TERM_LIBS = -lseccomp
 
 CFLAGS ?= -Wall -Wextra -O2
 
@@ -18,11 +19,11 @@ DEPS = $(OBJS:.o=.d)
 
 all: $(TARGET) $(TERM_PROG)
 
-$(TARGET): $(filter-out $(BUILD)/term.o,$(OBJS))
+$(TARGET): $(filter-out $(BUILD)/term.o $(BUILD)/sandbox.o,$(OBJS))
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 $(TERM_PROG): $(filter-out $(BUILD)/main.o,$(OBJS))
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(TUNDRA_TERM_LIBS)
 
 $(BUILD)/%.o: src/%.c
 	@mkdir -p $(dir $@)
@@ -51,7 +52,7 @@ TEST_TOOLS = $(patsubst tests/tools/%.c,$(TEST_BUILD)/tools/%,$(wildcard tests/t
 $(TEST_BUILD)/tools/%: tests/tools/%.c tests/tools/dump.h $(SRCS) $(HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(TUNDRA_STD) $(CFLAGS) $(TUNDRA_INC) -Itests/tools $(TUNDRA_DEFS) \
-		-o $@ $<
+		-o $@ $< $(TUNDRA_TERM_LIBS)
 
 tools: $(TEST_TOOLS)
 
@@ -65,7 +66,7 @@ TERM_SRCS = $(filter-out src/main.c,$(SRCS))
 $(TEST_TERM): $(TERM_SRCS) $(HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(TUNDRA_STD) $(CFLAGS) $(UNIT_FLAGS) $(TUNDRA_INC) $(TUNDRA_DEFS) \
-		-o $@ $(TERM_SRCS)
+		-DFROST_NO_SECCOMP -o $@ $(TERM_SRCS) $(TUNDRA_TERM_LIBS)
 
 check: check-unit $(TARGET) $(TERM_PROG) $(TEST_TERM) $(TEST_TOOLS)
 	@sh tests/sys/run.sh

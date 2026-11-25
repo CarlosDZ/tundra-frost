@@ -17,6 +17,7 @@
 #include "history.h"
 #include "proto.h"
 #include "pty.h"
+#include "sandbox.h"
 #include "screen.h"
 #include "shm.h"
 
@@ -41,9 +42,10 @@ static struct term {
 	int cols, rows;
 	int waiting, changed, synced;
 	long long since, sync_since;
-	int lsock;
+	int lsock, dirfd;
 	unsigned number;
 	char path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+	char leaf[16];
 	char name[TERM_NAME_MAX];
 	char buf[MSG_MAX];
 } t;
@@ -307,6 +309,7 @@ static int sock_dir(char *dir, size_t size) {
 static void listen_numbered(void) {
 	char dir[sizeof(t.path) - 8];
 	t.lsock = -1;
+	t.dirfd = -1;
 	if (sock_dir(dir, sizeof(dir)) < 0)
 		return;
 	for (unsigned n = 1; n <= TERMS_MAX; n++) {
@@ -320,6 +323,8 @@ static void listen_numbered(void) {
 			t.lsock = fd;
 			t.number = n;
 			memcpy(t.path, a.sun_path, sizeof(t.path));
+			snprintf(t.leaf, sizeof(t.leaf), "%u", n);
+			t.dirfd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 			return;
 		}
 		int taken = errno == EADDRINUSE;
@@ -435,6 +440,10 @@ int main(int argc, char **argv) {
 	if (t.master < 0)
 		return 1;
 	listen_numbered();
+#ifndef FROST_NO_SECCOMP
+	if (sandbox_term(t.master, t.dirfd, t.pid) < 0)
+		return 1;
+#endif
 	write_begin();
 	write_end();
 	t.changed = 1;
@@ -493,7 +502,7 @@ int main(int argc, char **argv) {
 	notify();
 	int32_t st = status;
 	to_window(MSG_EXIT, &st, sizeof(st));
-	if (t.lsock >= 0)
-		unlink(t.path);
+	if (t.lsock >= 0 && t.dirfd >= 0)
+		unlinkat(t.dirfd, t.leaf, 0);
 	return 0;
 }
