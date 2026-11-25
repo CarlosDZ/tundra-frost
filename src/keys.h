@@ -1,0 +1,111 @@
+#ifndef FROST_KEYS_H
+#define FROST_KEYS_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+enum {
+	KEY_ESCAPE = 57344,
+	KEY_ENTER,
+	KEY_TAB,
+	KEY_BACKSPACE,
+	KEY_INSERT,
+	KEY_DELETE,
+	KEY_LEFT,
+	KEY_RIGHT,
+	KEY_UP,
+	KEY_DOWN,
+	KEY_PAGE_UP,
+	KEY_PAGE_DOWN,
+	KEY_HOME,
+	KEY_END,
+	KEY_CAPS_LOCK,
+	KEY_SCROLL_LOCK,
+	KEY_NUM_LOCK,
+	KEY_PRINT_SCREEN,
+	KEY_PAUSE,
+	KEY_MENU,
+	KEY_F1,
+	KEY_F35 = KEY_F1 + 34,
+	KEY_KP_0,
+	KEY_KP_9 = KEY_KP_0 + 9,
+	KEY_KP_DECIMAL,
+	KEY_KP_DIVIDE,
+	KEY_KP_MULTIPLY,
+	KEY_KP_SUBTRACT,
+	KEY_KP_ADD,
+	KEY_KP_ENTER,
+	KEY_KP_EQUAL,
+	KEY_KP_SEPARATOR,
+	KEY_KP_LEFT,
+	KEY_KP_RIGHT,
+	KEY_KP_UP,
+	KEY_KP_DOWN,
+	KEY_KP_PAGE_UP,
+	KEY_KP_PAGE_DOWN,
+	KEY_KP_HOME,
+	KEY_KP_END,
+	KEY_KP_INSERT,
+	KEY_KP_DELETE,
+	KEY_KP_BEGIN,
+	KEY_MEDIA_PLAY,
+	KEY_MUTE_VOLUME = KEY_MEDIA_PLAY + 12,
+	KEY_LEFT_SHIFT,
+	KEY_LEFT_CONTROL,
+	KEY_LEFT_ALT,
+	KEY_LEFT_SUPER,
+	KEY_LEFT_HYPER,
+	KEY_LEFT_META,
+	KEY_RIGHT_SHIFT,
+	KEY_RIGHT_CONTROL,
+	KEY_RIGHT_ALT,
+	KEY_RIGHT_SUPER,
+	KEY_RIGHT_HYPER,
+	KEY_RIGHT_META,
+	KEY_ISO_LEVEL3_SHIFT,
+	KEY_ISO_LEVEL5_SHIFT,
+};
+
+#define KEY_F(n) (KEY_F1 + (n) - 1)
+
+enum {
+	MOD_SHIFT = 1,
+	MOD_ALT = 2,
+	MOD_CTRL = 4,
+	MOD_SUPER = 8,
+	MOD_HYPER = 16,
+	MOD_META = 32,
+	MOD_CAPS_LOCK = 64,
+	MOD_NUM_LOCK = 128,
+};
+
+enum { KEY_PRESS = 1, KEY_REPEAT, KEY_RELEASE };
+
+enum {
+	KEYS_DISAMBIGUATE = 1,
+	KEYS_EVENT_TYPES = 2,
+	KEYS_ALTERNATES = 4,
+	KEYS_ALL = 8,
+	KEYS_TEXT = 16,
+};
+
+struct key {
+	uint32_t code;
+	uint32_t shifted;
+	uint32_t base;
+	unsigned mods;
+	int type;
+	const char *text;
+};
+
+struct key_modes {
+	unsigned flags;
+	int app_cursor;
+	int newline;
+};
+
+#define KEY_OUT_MAX 512
+
+size_t key_encode(const struct key *k, const struct key_modes *m, char *out);
+
+#endif

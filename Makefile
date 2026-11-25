@@ -33,7 +33,7 @@ HDRS = $(wildcard src/*.h)
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 DEPS = $(OBJS:.o=.d)
 
-WIN_SRCS  = src/main.c src/win.c src/render.c
+WIN_SRCS  = src/main.c src/win.c src/render.c src/keys.c
 TERM_SRCS = src/term.c src/sandbox.c
 
 PROTO = $(BUILD)/protocols
