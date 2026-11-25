@@ -12,7 +12,9 @@ frost --version
 
 Each terminal runs in its own process, `frost-term`, installed in
 `/usr/libexec`; frost starts it. They share the screen through a memfd and talk
-over a socket.
+over a socket. A terminal also listens in `$XDG_RUNTIME_DIR/frost/<number>`,
+for its user only: a window attaches to it there, and it goes on without one
+when its window detaches or falls.
 
 ## Exit status
 

@@ -11,6 +11,9 @@ enum msg_type {
 	MSG_ACK,
 	MSG_DETACH,
 	MSG_CLOSE,
+	MSG_NAME,
+	MSG_ATTACH,
+	MSG_QUERY,
 
 	MSG_SHM = 32,
 	MSG_DAMAGE,
@@ -20,6 +23,18 @@ enum msg_type {
 	MSG_NOTIFY,
 	MSG_CWD,
 	MSG_EXIT,
+	MSG_INFO,
+	MSG_BUSY,
+};
+
+#define TERM_NAME_MAX 32
+#define TERM_TITLE_MAX 96
+
+struct msg_info {
+	uint32_t number;
+	uint8_t attached;
+	char name[TERM_NAME_MAX];
+	char title[TERM_TITLE_MAX];
 };
 
 struct msg_resize {
