@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <wayland-client.h>
 
+#include "kbd.h"
 #include "proto.h"
 #include "render.h"
 #include "shm.h"
@@ -44,6 +45,8 @@ static struct win {
 	struct wl_surface *surf;
 	struct xdg_surface *xs;
 	struct xdg_toplevel *top;
+	struct wl_seat *seat;
+	struct wl_keyboard *keyboard;
 
 	int next_w, next_h, next_focus, configured, focused;
 	struct buffer buf[2], *shown;
@@ -64,6 +67,10 @@ static struct win {
 	struct tdraw_theme *theme;
 	int blink, blinking, lit, tick;
 	int cur_y, cur_drawn;
+
+	struct kbd kbd;
+	int rep, rep_rate, rep_delay;
+	uint32_t rep_key;
 	char msg[MSG_MAX];
 } w;
 
@@ -76,6 +83,9 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
 		w.shm = wl_registry_bind(reg, name, &wl_shm_interface, 1);
 	else if (strcmp(iface, xdg_wm_base_interface.name) == 0)
 		w.wm = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
+	else if (strcmp(iface, wl_seat_interface.name) == 0 && !w.seat)
+		w.seat = wl_registry_bind(reg, name, &wl_seat_interface,
+		                          version < 5 ? version : 5);
 	else if (strcmp(iface, zxdg_decoration_manager_v1_interface.name) == 0)
 		w.deco_mgr = wl_registry_bind(reg, name,
 		                              &zxdg_decoration_manager_v1_interface, 1);
@@ -293,6 +303,127 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time) {
 	w.frame = NULL;
 }
 
+static const struct shm_head *head(void) {
+	const struct shm_head *h = (const struct shm_head *)w.map;
+	return h && h->magic == SHM_MAGIC && h->version == SHM_VERSION ? h : NULL;
+}
+
+static void input(const char *bytes, size_t n) {
+	if (n && w.sock >= 0)
+		msg_send(w.sock, MSG_INPUT, bytes, n, -1);
+}
+
+static void repeat_arm(uint32_t key) {
+	struct itimerspec t = {0};
+	if (key && w.rep_rate > 0) {
+		long first = w.rep_delay > 0 ? w.rep_delay : 1;
+		t.it_value.tv_sec = first / 1000;
+		t.it_value.tv_nsec = first % 1000 * 1000000L;
+		t.it_interval.tv_nsec = 1000000000L / w.rep_rate;
+	}
+	timerfd_settime(w.rep, 0, &t, NULL);
+	w.rep_key = key;
+}
+
+static int shortcut(const struct key *k) {
+	uint32_t c = k->code < 128 ? k->code : k->base;
+	if ((k->mods & (MOD_SHIFT | MOD_CTRL | MOD_ALT | MOD_SUPER)) !=
+	    (MOD_SHIFT | MOD_CTRL))
+		return 0;
+	return c == 'c' || c == 'v' || c == ' ' ? (int)c : 0;
+}
+
+static void on_key(uint32_t evdev, int type) {
+	struct key k;
+	if (kbd_key(&w.kbd, evdev, type, &k) < 0 || shortcut(&k))
+		return;
+	const struct shm_head *h = head();
+	struct key_modes m = {0, 0, 0};
+	if (h)
+		m = (struct key_modes){h->keys, h->app_cursor, h->newline};
+	char out[KEY_OUT_MAX];
+	input(out, key_encode(&k, &m, out));
+}
+
+static void kb_keymap(void *data, struct wl_keyboard *kb, uint32_t format,
+                      int fd, uint32_t size) {
+	(void)data, (void)kb;
+	if (format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 && size > 0) {
+		char *text = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+		if (text != MAP_FAILED) {
+			if (kbd_keymap(&w.kbd, text) < 0)
+				fprintf(stderr, "frost: cannot read the keymap\n");
+			munmap(text, size);
+		}
+	}
+	close(fd);
+}
+
+static void kb_enter(void *data, struct wl_keyboard *kb, uint32_t serial,
+                     struct wl_surface *s, struct wl_array *keys) {
+	(void)data, (void)kb, (void)serial, (void)s, (void)keys;
+}
+
+static void kb_leave(void *data, struct wl_keyboard *kb, uint32_t serial,
+                     struct wl_surface *s) {
+	(void)data, (void)kb, (void)serial, (void)s;
+	repeat_arm(0);
+}
+
+static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
+                   uint32_t time, uint32_t key, uint32_t state) {
+	(void)data, (void)kb, (void)serial, (void)time;
+	int down = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+	on_key(key, down ? KEY_PRESS : KEY_RELEASE);
+	if (down && kbd_repeats(&w.kbd, key))
+		repeat_arm(key);
+	else if (!down && key == w.rep_key)
+		repeat_arm(0);
+}
+
+static void kb_modifiers(void *data, struct wl_keyboard *kb, uint32_t serial,
+                         uint32_t depressed, uint32_t latched, uint32_t locked,
+                         uint32_t group) {
+	(void)data, (void)kb, (void)serial;
+	kbd_modifiers(&w.kbd, depressed, latched, locked, group);
+}
+
+static void kb_repeat_info(void *data, struct wl_keyboard *kb, int32_t rate,
+                           int32_t delay) {
+	(void)data, (void)kb;
+	w.rep_rate = rate, w.rep_delay = delay;
+}
+
+static const struct wl_keyboard_listener keyboard_listener = {
+    kb_keymap, kb_enter, kb_leave, kb_key, kb_modifiers, kb_repeat_info};
+
+static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps) {
+	(void)data;
+	int has = caps & WL_SEAT_CAPABILITY_KEYBOARD;
+	if (has && !w.keyboard) {
+		w.keyboard = wl_seat_get_keyboard(seat);
+		wl_keyboard_add_listener(w.keyboard, &keyboard_listener, NULL);
+	} else if (!has && w.keyboard) {
+		wl_keyboard_destroy(w.keyboard);
+		w.keyboard = NULL;
+		repeat_arm(0);
+	}
+}
+
+static void seat_name(void *data, struct wl_seat *seat, const char *name) {
+	(void)data, (void)seat, (void)name;
+}
+
+static const struct wl_seat_listener seat_listener = {seat_caps, seat_name};
+
+static void focus_changed(void) {
+	const struct shm_head *h = head();
+	if (h && h->focus_events)
+		input(w.focused ? "\x1b[I" : "\x1b[O", 3);
+	if (!w.focused)
+		repeat_arm(0);
+}
+
 static const char *term_path(void) {
 #ifdef FROST_TEST
 	const char *p = getenv("FROST_TEST_TERM");
@@ -350,6 +481,7 @@ static int apply_configure(const struct cli *c) {
 	if (w.next_focus != w.focused) {
 		w.focused = w.next_focus;
 		w.full = 1;
+		focus_changed();
 	}
 	if (width == w.bw && height == w.bh && w.sock >= 0)
 		return 0;
@@ -450,6 +582,8 @@ static int open_window(const struct cli *c) {
 		return -1;
 	}
 	xdg_wm_base_add_listener(w.wm, &wm_listener, NULL);
+	if (w.seat)
+		wl_seat_add_listener(w.seat, &seat_listener, NULL);
 	w.surf = wl_compositor_create_surface(w.comp);
 	w.xs = xdg_wm_base_get_xdg_surface(w.wm, w.surf);
 	xdg_surface_add_listener(w.xs, &xs_listener, NULL);
@@ -481,6 +615,10 @@ static void close_window(void) {
 		xdg_surface_destroy(w.xs);
 	if (w.surf)
 		wl_surface_destroy(w.surf);
+	if (w.keyboard)
+		wl_keyboard_destroy(w.keyboard);
+	if (w.seat)
+		wl_seat_destroy(w.seat);
 	if (w.deco_mgr)
 		zxdg_decoration_manager_v1_destroy(w.deco_mgr);
 	if (w.wm)
@@ -504,12 +642,13 @@ static void loop(const struct cli *c) {
 			wl_display_cancel_read(w.dpy);
 			return;
 		}
-		struct pollfd p[4] = {
+		struct pollfd p[5] = {
 		    {wl_display_get_fd(w.dpy), POLLIN, 0},
 		    {w.sock, POLLIN, 0},
 		    {w.theme ? tdraw_theme_fd(w.theme) : -1, POLLIN, 0},
-		    {w.blink, POLLIN, 0}};
-		if (poll(p, 4, -1) < 0 && errno != EINTR) {
+		    {w.blink, POLLIN, 0},
+		    {w.rep, POLLIN, 0}};
+		if (poll(p, 5, -1) < 0 && errno != EINTR) {
 			wl_display_cancel_read(w.dpy);
 			perror("poll error");
 			return;
@@ -540,6 +679,12 @@ static void loop(const struct cli *c) {
 			if (read(w.blink, &ticks, sizeof(ticks)) == sizeof(ticks))
 				w.lit = !w.lit, w.tick = 1;
 		}
+		if (p[4].revents & POLLIN) {
+			uint64_t ticks;
+			if (read(w.rep, &ticks, sizeof(ticks)) == sizeof(ticks) &&
+			    w.rep_key)
+				on_key(w.rep_key, KEY_REPEAT);
+		}
 		draw();
 	}
 }
@@ -556,8 +701,11 @@ int win_run(const struct cli *c) {
 		fprintf(stderr, "frost: %s\n", err);
 	render_theme(&w.r, w.theme);
 	w.blink = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
-	if (w.blink < 0)
+	w.rep = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
+	if (w.blink < 0 || w.rep < 0)
 		perror("timerfd error");
+	if (kbd_init(&w.kbd, NULL) < 0)
+		fprintf(stderr, "frost: no xkb context\n");
 	if (open_window(c) == 0)
 		loop(c);
 #ifdef FROST_TEST
@@ -572,6 +720,9 @@ int win_run(const struct cli *c) {
 	close_window();
 	if (w.blink >= 0)
 		close(w.blink);
+	if (w.rep >= 0)
+		close(w.rep);
+	kbd_free(&w.kbd);
 	render_free(&w.r);
 	tdraw_theme_free(w.theme);
 	return w.status;

@@ -69,6 +69,37 @@ wait_end() {
 	wait "$1"
 }
 
+chord() {
+	for c in "$@"; do
+		"$ask" key "$c" down >/dev/null
+	done
+	for c in $(printf '%s\n' "$@" | sed -n '1!G;h;$p'); do
+		"$ask" key "$c" up >/dev/null
+	done
+}
+
+wait_file() {
+	i=0
+	until [ -e "$1" ]; do
+		i=$((i + 1))
+		[ "$i" -gt 50 ] && return 1
+		sleep 0.1
+	done
+}
+
+hex() {
+	od -An -tx1 "$1" | tr -s ' \n' '  ' | sed 's/^ //; s/ $//'
+}
+
+reader() {
+	app=$1 setup=$2 read=$3
+	$frost --app-id "$app" sh -c \
+		"$setup stty raw -echo; : >$WORK/$app.ready; $read >$WORK/$app" &
+	win=$!
+	wait_window "$app" && wait_file "$WORK/$app.ready"
+	sleep 0.3
+}
+
 finish() {
 	for p in $others; do
 		kill "$p" 2>/dev/null
@@ -142,6 +173,38 @@ wait_end $win
 check "$("$picture" pixel "$WORK/theme.png" 0 0)" "ff203040" \
 	"a new theme repaints the window"
 theme 101418
+
+reader keys "" "head -c 11"
+chord 29 42 46
+chord 30
+chord 42 30
+chord 29 46
+chord 103
+chord 63
+wait_end $win
+check "$(hex "$WORK/keys")" "61 41 03 1b 5b 41 1b 5b 31 35 7e" \
+	"keys reach the program as xterm sends them, Ctrl + Shift + C not"
+
+reader kitty "printf '\\033[>1u';" "head -c 12"
+chord 1
+chord 29 46
+wait_end $win
+check "$(hex "$WORK/kitty")" "1b 5b 32 37 75 1b 5b 39 39 3b 35 75" \
+	"a program that asks for kitty's keys gets them: Esc and Ctrl + C"
+
+reader repeat "" "head -c 5"
+"$ask" key 30 down >/dev/null
+sleep 1.2
+"$ask" key 30 up >/dev/null
+wait_end $win
+check "$(cat "$WORK/repeat")" "aaaaa" "a key held down repeats"
+
+reader focus "printf '\\033[?1004h';" "timeout --foreground 3 cat"
+"$B/build/test/tools/client" window other2 >/dev/null 2>&1 &
+others="$others $!"
+wait_end $win
+check "$(hex "$WORK/focus" | grep -o '1b 5b 4f$')" "1b 5b 4f" \
+	"a program that asks hears the window lose the focus"
 
 $frost --app-id frost-fall sh -c 'printf tres; sleep 30' &
 win=$!

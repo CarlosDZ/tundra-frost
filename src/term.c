@@ -146,6 +146,9 @@ static void publish(int all) {
 	h->cursor_blink = (uint8_t)s->cursor_blink;
 	h->reverse = (uint8_t)s->reverse, h->sync = (uint8_t)s->sync;
 	h->focus_events = (uint8_t)s->focus_events;
+	h->keys = (uint8_t)(g->nkeys ? g->keys[g->nkeys - 1] : 0);
+	h->app_cursor = (uint8_t)s->app_cursor, h->newline = (uint8_t)s->newline;
+	h->bracketed_paste = (uint8_t)s->bracketed_paste;
 	memcpy(h->palette, s->palette, sizeof(h->palette));
 	memcpy(h->palette_set, s->palette_set, sizeof(h->palette_set));
 	__atomic_store_n(&h->seq, h->seq + 1, __ATOMIC_RELEASE);

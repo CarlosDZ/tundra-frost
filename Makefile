@@ -8,8 +8,9 @@ TUNDRA_DEFS = -D_GNU_SOURCE -DTUNDRA_FROST_VERSION=\"$(VERSION)\" \
               -DTUNDRA_FROST_TERM=\"$(PREFIX)/libexec/frost-term\"
 TUNDRA_INC  = -Isrc -I$(PROTO)
 TUNDRA_TERM_LIBS = -lseccomp
-TUNDRA_WL_CFLAGS = $(shell $(PKG_CONFIG) --cflags wayland-client)
-TUNDRA_LIBS = -ltundra-draw $(shell $(PKG_CONFIG) --libs wayland-client)
+TUNDRA_WL_PKGS = wayland-client xkbcommon
+TUNDRA_WL_CFLAGS = $(shell $(PKG_CONFIG) --cflags $(TUNDRA_WL_PKGS))
+TUNDRA_LIBS = -ltundra-draw $(shell $(PKG_CONFIG) --libs $(TUNDRA_WL_PKGS))
 
 CONF_DEV ?= $(wildcard ../tundra-libconf)
 DRAW_DEV ?= $(wildcard ../tundra-libdraw)
@@ -33,7 +34,7 @@ HDRS = $(wildcard src/*.h)
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 DEPS = $(OBJS:.o=.d)
 
-WIN_SRCS  = src/main.c src/win.c src/render.c src/keys.c
+WIN_SRCS  = src/main.c src/win.c src/render.c src/keys.c src/kbd.c
 TERM_SRCS = src/term.c src/sandbox.c
 
 PROTO = $(BUILD)/protocols

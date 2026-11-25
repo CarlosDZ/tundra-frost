@@ -40,14 +40,14 @@ struct form {
 };
 
 static const struct form forms[] = {
-    {KEY_INSERT, 2, '~'},    {KEY_DELETE, 3, '~'},   {KEY_PAGE_UP, 5, '~'},
-    {KEY_PAGE_DOWN, 6, '~'}, {KEY_UP, 1, 'A'},       {KEY_DOWN, 1, 'B'},
-    {KEY_RIGHT, 1, 'C'},     {KEY_LEFT, 1, 'D'},     {KEY_HOME, 1, 'H'},
-    {KEY_END, 1, 'F'},       {KEY_KP_BEGIN, 1, 'E'}, {KEY_F(1), 1, 'P'},
-    {KEY_F(2), 1, 'Q'},      {KEY_F(3), 13, '~'},    {KEY_F(4), 1, 'S'},
-    {KEY_F(5), 15, '~'},     {KEY_F(6), 17, '~'},    {KEY_F(7), 18, '~'},
-    {KEY_F(8), 19, '~'},     {KEY_F(9), 20, '~'},    {KEY_F(10), 21, '~'},
-    {KEY_F(11), 23, '~'},    {KEY_F(12), 24, '~'},
+    {FKEY_INSERT, 2, '~'},    {FKEY_DELETE, 3, '~'},   {FKEY_PAGE_UP, 5, '~'},
+    {FKEY_PAGE_DOWN, 6, '~'}, {FKEY_UP, 1, 'A'},       {FKEY_DOWN, 1, 'B'},
+    {FKEY_RIGHT, 1, 'C'},     {FKEY_LEFT, 1, 'D'},     {FKEY_HOME, 1, 'H'},
+    {FKEY_END, 1, 'F'},       {FKEY_KP_BEGIN, 1, 'E'}, {FKEY_F(1), 1, 'P'},
+    {FKEY_F(2), 1, 'Q'},      {FKEY_F(3), 13, '~'},    {FKEY_F(4), 1, 'S'},
+    {FKEY_F(5), 15, '~'},     {FKEY_F(6), 17, '~'},    {FKEY_F(7), 18, '~'},
+    {FKEY_F(8), 19, '~'},     {FKEY_F(9), 20, '~'},    {FKEY_F(10), 21, '~'},
+    {FKEY_F(11), 23, '~'},    {FKEY_F(12), 24, '~'},
 };
 
 static const struct form *form_of(uint32_t c) {
@@ -57,50 +57,52 @@ static const struct form *form_of(uint32_t c) {
 	return NULL;
 }
 
-static int is_keypad(uint32_t c) { return c >= KEY_KP_0 && c <= KEY_KP_BEGIN; }
+static int is_keypad(uint32_t c) {
+	return c >= FKEY_KP_0 && c <= FKEY_KP_BEGIN;
+}
 
 static int is_modifier(uint32_t c) {
-	return (c >= KEY_LEFT_SHIFT && c <= KEY_ISO_LEVEL5_SHIFT) ||
-	       c == KEY_CAPS_LOCK || c == KEY_SCROLL_LOCK || c == KEY_NUM_LOCK;
+	return (c >= FKEY_LEFT_SHIFT && c <= FKEY_ISO_LEVEL5_SHIFT) ||
+	       c == FKEY_CAPS_LOCK || c == FKEY_SCROLL_LOCK || c == FKEY_NUM_LOCK;
 }
 
 static uint32_t off_keypad(uint32_t c) {
 	switch (c) {
-	case KEY_KP_ENTER:
-		return KEY_ENTER;
-	case KEY_KP_LEFT:
-		return KEY_LEFT;
-	case KEY_KP_RIGHT:
-		return KEY_RIGHT;
-	case KEY_KP_UP:
-		return KEY_UP;
-	case KEY_KP_DOWN:
-		return KEY_DOWN;
-	case KEY_KP_PAGE_UP:
-		return KEY_PAGE_UP;
-	case KEY_KP_PAGE_DOWN:
-		return KEY_PAGE_DOWN;
-	case KEY_KP_HOME:
-		return KEY_HOME;
-	case KEY_KP_END:
-		return KEY_END;
-	case KEY_KP_INSERT:
-		return KEY_INSERT;
-	case KEY_KP_DELETE:
-		return KEY_DELETE;
+	case FKEY_KP_ENTER:
+		return FKEY_ENTER;
+	case FKEY_KP_LEFT:
+		return FKEY_LEFT;
+	case FKEY_KP_RIGHT:
+		return FKEY_RIGHT;
+	case FKEY_KP_UP:
+		return FKEY_UP;
+	case FKEY_KP_DOWN:
+		return FKEY_DOWN;
+	case FKEY_KP_PAGE_UP:
+		return FKEY_PAGE_UP;
+	case FKEY_KP_PAGE_DOWN:
+		return FKEY_PAGE_DOWN;
+	case FKEY_KP_HOME:
+		return FKEY_HOME;
+	case FKEY_KP_END:
+		return FKEY_END;
+	case FKEY_KP_INSERT:
+		return FKEY_INSERT;
+	case FKEY_KP_DELETE:
+		return FKEY_DELETE;
 	}
 	return c;
 }
 
 static uint32_t number_of(uint32_t c) {
 	switch (c) {
-	case KEY_ESCAPE:
+	case FKEY_ESCAPE:
 		return 27;
-	case KEY_ENTER:
+	case FKEY_ENTER:
 		return 13;
-	case KEY_TAB:
+	case FKEY_TAB:
 		return 9;
-	case KEY_BACKSPACE:
+	case FKEY_BACKSPACE:
 		return 127;
 	}
 	return c;
@@ -112,7 +114,8 @@ static int writes_text(const char *t) {
 }
 
 static int is_text_key(const struct key *k) {
-	return k->code < KEY_ESCAPE || (is_keypad(k->code) && writes_text(k->text));
+	return k->code < FKEY_ESCAPE ||
+	       (is_keypad(k->code) && writes_text(k->text));
 }
 
 static void codepoints(const char *t, char *buf, size_t size) {
@@ -208,37 +211,37 @@ static void legacy(const struct key *k, const struct key_modes *m,
 	if (!(mods & OTHER_MODS)) {
 		const char *pre = alt ? "\x1b" : "";
 		switch (c) {
-		case KEY_ENTER:
+		case FKEY_ENTER:
 			puts_(o, pre);
 			legacy_enter(o, m);
 			return;
-		case KEY_ESCAPE:
+		case FKEY_ESCAPE:
 			puts_(o, pre);
 			puts_(o, "\x1b");
 			return;
-		case KEY_BACKSPACE:
+		case FKEY_BACKSPACE:
 			puts_(o, pre);
 			puts_(o, mods & MOD_CTRL ? "\b" : "\x7f");
 			return;
-		case KEY_TAB:
+		case FKEY_TAB:
 			puts_(o, pre);
 			puts_(o, mods & MOD_SHIFT ? "\x1b[Z" : "\t");
 			return;
 		}
 	}
 
-	if (c == KEY_MENU) {
+	if (c == FKEY_MENU) {
 		csi(o, 29, "", mods, KEY_PRESS, "", '~');
 		return;
 	}
 	const struct form *f = form_of(c);
 	if (f) {
 		int ss3 =
-		    !mods &&
-		    (c == KEY_F(1) || c == KEY_F(2) || c == KEY_F(3) || c == KEY_F(4) ||
-		     (m->app_cursor && f->number == 1 && c != KEY_KP_BEGIN));
-		static const struct form f3 = {KEY_F(3), 1, 'R'};
-		if (c == KEY_F(3))
+		    !mods && (c == FKEY_F(1) || c == FKEY_F(2) || c == FKEY_F(3) ||
+		              c == FKEY_F(4) ||
+		              (m->app_cursor && f->number == 1 && c != FKEY_KP_BEGIN));
+		static const struct form f3 = {FKEY_F(3), 1, 'R'};
+		if (c == FKEY_F(3))
 			f = &f3;
 		if (ss3)
 			putf(o, "\x1bO%c", f->final);
@@ -247,7 +250,7 @@ static void legacy(const struct key *k, const struct key_modes *m,
 		return;
 	}
 
-	if (c < KEY_ESCAPE) {
+	if (c < FKEY_ESCAPE) {
 		unsigned char b = 0;
 		uint32_t ascii = c < 128 ? c : k->base < 128 ? k->base : 0;
 		int ctrl = mods & MOD_CTRL;
@@ -299,14 +302,14 @@ static void enhanced(const struct key *k, const struct key_modes *m,
 	}
 	int text_key = is_text_key(k);
 	if (!all) {
-		if (c == KEY_ENTER || c == KEY_TAB || c == KEY_BACKSPACE) {
+		if (c == FKEY_ENTER || c == FKEY_TAB || c == FKEY_BACKSPACE) {
 			if (type == KEY_RELEASE)
 				return;
 			if (!plain) {
-				if (c == KEY_ENTER)
+				if (c == FKEY_ENTER)
 					legacy_enter(o, m);
 				else
-					puts_(o, c == KEY_TAB ? "\t" : "\x7f");
+					puts_(o, c == FKEY_TAB ? "\t" : "\x7f");
 				return;
 			}
 		} else if (text_key && !(plain & ~MOD_SHIFT)) {
@@ -326,7 +329,7 @@ static void enhanced(const struct key *k, const struct key_modes *m,
 	}
 
 	char alts[32] = "";
-	if ((f & KEYS_ALTERNATES) && c < KEY_ESCAPE) {
+	if ((f & KEYS_ALTERNATES) && c < FKEY_ESCAPE) {
 		uint32_t s = (k->mods & MOD_SHIFT) && k->shifted != c ? k->shifted : 0;
 		uint32_t b = k->base != c ? k->base : 0;
 		if (s && b)
