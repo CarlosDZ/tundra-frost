@@ -19,3 +19,10 @@ usage.
 
 `make check-unit` builds and runs the unit tests with ASan and UBSan.
 `make check` adds the tests of the built program.
+
+`tests/rec` holds what real programs wrote to a terminal (nvim, less, man,
+htop, git, ls) and the screen each one leaves, reviewed once by eye; a unit test
+replays them. `make tools` builds `replay`, which prints the screen a recording
+leaves, and `bench-vt` and `bench-screen`, which measure the parser and the
+screen. `tests/tools/gen-width.py` writes `src/width-table.h` from the Unicode
+16 database of Python.

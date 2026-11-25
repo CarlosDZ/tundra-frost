@@ -1,0 +1,38 @@
+-- the alternate grid as it was left
+|línea 266: texto de relleno para el paginador, con algo de longitud variable --------------------------                 |
+|línea 267: texto de relleno para el paginador, con algo de longitud variable ---------------------------                |
+|línea 268: texto de relleno para el paginador, con algo de longitud variable ----------------------------               |
+|línea 269: texto de relleno para el paginador, con algo de longitud variable -----------------------------              |
+|línea 270: texto de relleno para el paginador, con algo de longitud variable ------------------------------             |
+|línea 271: texto de relleno para el paginador, con algo de longitud variable -------------------------------            |
+|línea 272: texto de relleno para el paginador, con algo de longitud variable --------------------------------           |
+|línea 273: texto de relleno para el paginador, con algo de longitud variable ---------------------------------          |
+|línea 274: texto de relleno para el paginador, con algo de longitud variable ----------------------------------         |
+|línea 275: texto de relleno para el paginador, con algo de longitud variable -----------------------------------        |
+|línea 276: texto de relleno para el paginador, con algo de longitud variable ------------------------------------       |
+|línea 277: texto de relleno para el paginador, con algo de longitud variable -------------------------------------      |
+|línea 278: texto de relleno para el paginador, con algo de longitud variable --------------------------------------     |
+|línea 279: texto de relleno para el paginador, con algo de longitud variable ---------------------------------------    |
+|línea 280: texto de relleno para el paginador, con algo de longitud variable                                            |
+|línea 281: texto de relleno para el paginador, con algo de longitud variable -                                          |
+|línea 282: texto de relleno para el paginador, con algo de longitud variable --                                         |
+|línea 283: texto de relleno para el paginador, con algo de longitud variable ---                                        |
+|línea 284: texto de relleno para el paginador, con algo de longitud variable ----                                       |
+|línea 285: texto de relleno para el paginador, con algo de longitud variable -----                                      |
+|línea 286: texto de relleno para el paginador, con algo de longitud variable ------                                     |
+|línea 287: texto de relleno para el paginador, con algo de longitud variable -------                                    |
+|línea 288: texto de relleno para el paginador, con algo de longitud variable --------                                   |
+|línea 289: texto de relleno para el paginador, con algo de longitud variable ---------                                  |
+|línea 290: texto de relleno para el paginador, con algo de longitud variable ----------                                 |
+|línea 291: texto de relleno para el paginador, con algo de longitud variable -----------                                |
+|línea 292: texto de relleno para el paginador, con algo de longitud variable ------------                               |
+|línea 293: texto de relleno para el paginador, con algo de longitud variable -------------                              |
+|línea 294: texto de relleno para el paginador, con algo de longitud variable --------------                             |
+|línea 295: texto de relleno para el paginador, con algo de longitud variable ---------------                            |
+|línea 296: texto de relleno para el paginador, con algo de longitud variable ----------------                           |
+|línea 297: texto de relleno para el paginador, con algo de longitud variable -----------------                          |
+|línea 298: texto de relleno para el paginador, con algo de longitud variable ------------------                         |
+|línea 299: texto de relleno para el paginador, con algo de longitud variable -------------------                        |
+|línea 300: texto de relleno para el paginador, con algo de longitud variable --------------------                       |
+|                                                                                                                        |
+cursor 0,0 alt

@@ -1,0 +1,71 @@
+[?1049h[22;0;0t[36;1H[?1h=[4mLS[24m(1)                                                User Commands                                                [4mLS[24m(1)[m
+[m
+[1mNAME[0m[m
+     ls - list directory contents[m
+[m
+[1mSYNOPSIS[0m[m
+     [1mls [22m[[4mOPTION[24m]... [[4mFILE[24m]...[m
+[m
+[1mDESCRIPTION[0m[m
+     List  information about the FILEs (the current directory by default).  Sort entries alphabetically if none of [1m-cf‐[0m[m
+     [1mtuvSUX [22mnor [1m--sort [22mis specified.[m
+[m
+     Mandatory arguments to long options are mandatory for short options too.[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-a\[1m-a, --all[22m]8;;\[m]8;;\
+            do not ignore entries starting with .[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-A\[1m-A, --almost-all[22m]8;;\[m]8;;\
+            do not list implied . and ..[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls--author\[1m--author[22m]8;;\[m]8;;\
+            with [1m-l[22m, print the author of each file[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-b\[1m-b, --escape[22m]8;;\[m]8;;\
+            print C-style escapes for nongraphic characters[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls--block-size\[1m--block-size=SIZE[22m]8;;\[m]8;;\
+            with [1m-l[22m, scale sizes by SIZE when printing them; e.g., '--block-size=M'; see SIZE format below[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-B\[1m-B, --ignore-backups[22m]8;;\[m]8;;\
+            do not list implied entries ending with ~[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-c\[1m-c[22m]8;;\     with [1m-lt[22m: sort by, and show, ctime (time of last change of file status information); with  [1m-l[22m:  show  ctime[m]8;;\
+            and sort by name; otherwise: sort by ctime, newest first[m
+[m
+[7m Manual page ls(1) line 1 (press h for help or q to quit)[27m[K[K     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-C\[1m-C[22m]8;;\     list entries by columns[m]8;;\
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls--color\[1m--color[=WHEN][22m]8;;\[m]8;;\
+            color the output WHEN; more info below[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-d\[1m-d, --directory[22m]8;;\[m]8;;\
+            list directories themselves, not their contents[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-D\[1m-D, --dired[22m]8;;\[m]8;;\
+            generate output designed for Emacs' dired mode[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-f\[1m-f[22m]8;;\     same as [1m-a -U[0m[m]8;;\
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-F\[1m-F, --classify[=WHEN][22m]8;;\[m]8;;\
+            append indicator (one of */=>@|) to entries WHEN[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls--file-type\[1m--file-type[22m]8;;\[m]8;;\
+            like [1m-F[22m, except do not append '*'[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls--format\[1m--format=WORD[22m]8;;\[m]8;;\
+            across,horizontal ([1m-x[22m), commas ([1m-m[22m), long ([1m-l[22m), single-column ([1m-1[22m), verbose ([1m-l[22m), vertical ([1m-C[22m)[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls--full-time\[1m--full-time[22m]8;;\[m]8;;\
+            like [1m-l --time-style[22m=[4mfull-iso[0m[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-g\[1m-g[22m]8;;\     like [1m-l[22m, but do not list owner[m]8;;\
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls--group-directories-first\[1m--group-directories-first[22m]8;;\[m]8;;\
+            group directories before files[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-G\[1m-G, --no-group[22m]8;;\[m]8;;\
+            in a long listing, don't print group names[m
+[m
+     ]8;;https://www.gnu.org/software/coreutils/manual/coreutils.html#ls-h\[1m-h, --human-readable[22m]8;;\[m]8;;\
+            with [1m-l [22mand [1m-s[22m, print sizes like 1K 234M 2G etc.[m
+[7m Manual page ls(1) line 36 (press h for help or q to quit)[27m[K[K[?1l>[?1049l[23;0;0t

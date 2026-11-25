@@ -1,0 +1,39 @@
+|On branch main                                                                                                          |
+|                                                                                                                        |
+|No commits yet                                                                                                          |
+|                                                                                                                        |
+|Untracked files:                                                                                                        |
+|  (use "git add <file>..." to include in what will be committed)                                                        |
+|        nota.txt                                                                                                        |
+|        sample.c                                                                                                        |
+|                                                                                                                        |
+|nothing added to commit but untracked files present (use "git add" to track)                                            |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+cursor 0,10
+style 6 8-15 fg=01000001 bg=00000000 ul=00000000 attr=0000
+style 7 8-15 fg=01000001 bg=00000000 ul=00000000 attr=0000

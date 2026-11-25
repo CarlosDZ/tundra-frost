@@ -1,0 +1,48 @@
+|diff --git a/a.c b/b.c                                                                                                  |
+|index 2322dca..9f24f2e 100644                                                                                           |
+|--- a/a.c                                                                                                               |
+|+++ b/b.c                                                                                                               |
+|@@ -1,12 +1,12 @@                                                                                                       |
+| /* Prueba de frost: acentos (á é í ó ú ñ ç), anchos dobles (日本語) y un emoji ancho (🙂). */                          |
+| #include <stdio.h>                                                                                                     |
+|                                                                                                                        |
+|-static int suma(int a, int b) {                                                                                        |
+|+static int sumar(int a, int b) {                                                                                       |
+|        return a + b; /* ✓ estrecho */                                                                                  |
+| }                                                                                                                      |
+|                                                                                                                        |
+| int main(void) {                                                                                                       |
+|        for (int i = 0; i < 10; i++)                                                                                    |
+|-               printf("%d\n", suma(i, i * 2));                                                                         |
+|+               printf("%d\n", sumar(i, i * 3));                                                                        |
+|        return 0;                                                                                                       |
+| }                                                                                                                      |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+cursor 0,19
+style 0 0-21 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 1 0-28 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 2 0-8 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 3 0-8 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 4 0-16 fg=01000006 bg=00000000 ul=00000000 attr=0000
+style 8 0-31 fg=01000001 bg=00000000 ul=00000000 attr=0000
+style 9 0-32 fg=01000002 bg=00000000 ul=00000000 attr=0000
+style 15 0-0 fg=01000001 bg=00000000 ul=00000000 attr=0000
+style 15 16-46 fg=01000001 bg=00000000 ul=00000000 attr=0000
+style 16 0-0 fg=01000002 bg=00000000 ul=00000000 attr=0000
+style 16 16-47 fg=01000002 bg=00000000 ul=00000000 attr=0000

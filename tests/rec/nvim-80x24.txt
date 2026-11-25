@@ -1,0 +1,35 @@
+-- the alternate grid as it was left
+|/* Prueba de frost: acentos (á é í ó ú ñ ç), anchos dobles (日本語) y un emoji a|
+|ncho (🙂). */                                                                   |
+|#include <stdio.h>                                                              |
+|                                                                                |
+|static int suma(int a, int b) {                                                 |
+|        return a + b; /* ✓ estrecho */                                          |
+|}                                                                               |
+|                                                                                |
+|int main(void) {                                                                |
+|        for (int i = 0; i < 10; i++)                                            |
+|                printf("%d\n", suma(i, i * 2));                                 |
+|        return 0;                                                               |
+|}                                                                               |
+|~                                                                               |
+|~                                                                               |
+|~                                                                               |
+|~                                                                               |
+|~                                                                               |
+|~                                                                               |
+|~                                                                               |
+|~                                                                               |
+|~                                                                               |
+|sample.c                                                      10,3-17        All|
+|:q!                                                                             |
+cursor 0,0 alt
+style 2 9-17 fg=0100000a bg=00000000 ul=00000000 attr=0000
+style 5 8-13 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 9 8-10 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 10 16-21 fg=01000000 bg=0100000b ul=00000000 attr=0000
+style 10 23-23 fg=0100000a bg=00000000 ul=00000000 attr=0000
+style 10 24-27 fg=0100000e bg=00000000 ul=00000000 attr=0000
+style 10 28-28 fg=0100000a bg=00000000 ul=00000000 attr=0000
+style 11 8-13 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 22 0-79 fg=00000000 bg=00000000 ul=00000000 attr=0010

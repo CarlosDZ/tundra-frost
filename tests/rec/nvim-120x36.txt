@@ -1,0 +1,46 @@
+-- the alternate grid as it was left
+|  1 /* Prueba de frost: acentos (á é í ó ú ñ ç), anchos dobles (日本語) y un emoji ancho (🙂). */                       |
+|  2 Hola, ñandú 日本                                                                                                    |
+|  3 #include <stdio.h>                                                                                                  |
+|  4                                                                                                                     |
+|  5 static int suma(int a, int b) {                                                                                     |
+|  6         return a + b; /* ✓ estrecho */                                                                              |
+|  7 }                                                                                                                   |
+|  8                                                                                                                     |
+|  9 int main(void) {                                                                                                    |
+| 10         for (int i = 0; i < 10; i++)                                                                                |
+| 11                 printf("%d\n", suma(i, i * 2));                                                                     |
+| 12         return 0;                                                                                                   |
+| 13 }                                                                                                                   |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|~                                                                                                                       |
+|sample.c [+]                                                                                          2,18-15        All|
+|:q!                                                                                                                     |
+cursor 0,0 alt
+style 2 13-21 fg=0100000a bg=00000000 ul=00000000 attr=0000
+style 5 12-17 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 9 12-14 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 10 27-27 fg=0100000a bg=00000000 ul=00000000 attr=0000
+style 10 28-31 fg=0100000e bg=00000000 ul=00000000 attr=0000
+style 10 32-32 fg=0100000a bg=00000000 ul=00000000 attr=0000
+style 11 12-17 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 34 0-119 fg=00000000 bg=00000000 ul=00000000 attr=0010

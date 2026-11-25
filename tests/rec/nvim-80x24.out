@@ -1,0 +1,68 @@
+[?1049h[22;0;0t[?1h=[H[2J[?2004h[?69$p[?2026$p[?2027$p[?2031$p[?2048$p[0m[4:3mP$qm\[?u[c]11;?[5n[?25h]11;?[5n[?25l(B[m[H                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [1 q[?1002h[?1006h[H[?25h[?25l[?1004h[?25hP+q5463;524742;73657472676266;73657472676262\[0m[48;2;1;2;3mP$qm\[c[?25l(B[m[23B[J[93mE1568: Terminal did not respond to DSR request for 'background' color. Startup m[H(B[m/* Prueba de frost: acentos (á[1;31H é[1;33H í[1;35H ó[1;37H ú[1;39H ñ ç), anchos dobles (日本語) y un emoji ancho (  🙂[2;9H). */[K
+#include [92m<stdio.h>(B[m[K
+[K
+static int suma(int a, int b) {[K
+        (B[0;1mreturn(B[m a + b; /* ✓ estrecho */[K
+}[K
+[K
+int main(void) {[K
+        (B[0;1mfor(B[m (int i = 0; i < 10; i++)[K
+                printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[K
+        (B[0;1mreturn(B[m 0;[K
+}[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+(B[0;7msample.c                                                      1,1            All[2 q[2 q[H(B[m/* Prueba de frost: acentos (á[1;31H é[1;33H í[1;35H ó[1;37H ú[1;39H ñ ç), anchos dobles (日本語) y un emoji a
+ncho (  🙂[2;9H). */[K
+#include [92m<stdio.h>(B[m[K
+[K
+static int suma(int a, int b) {[K
+        (B[0;1mreturn(B[m a + b; /* ✓ estrecho */[K
+}[K
+[K
+int main(void) {[K
+        (B[0;1mfor(B[m (int i = 0; i < 10; i++)[K
+                printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[K
+        (B[0;1mreturn(B[m 0;[K
+}[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+(B[0;7msample.c                                                      1,1            All
+(B[m[93mE1568: Terminal did not respond to DSR request for 'background' color. Startup m[H[?25h[?25l(B[m[23B[J/printf[2 q[?1002l[?1006l[24;1H[?25h[?25l[2 q[?1002h[?1006h[62C[1/1][22An[11;17H[30m[103mprintf[23;64H(B[0;7m0,3-17[11;17H[?25h[?25l[24;70H(B[mdd[4 q[11;17H[?25h[?25l[24;70H  [10;22r[10;1H[M[r[10;9H(B[0;1mfor(B[m (int i = 0; i < 10; i++)[11X[12B~[K[23;10H(B[0;7m[+]                                                  10,10-17[2 q[11;17H[?25h[?25l[24;70H(B[mu[11;17H[?25h[?25l[13B1 more line; before #1  0 seconds ago[25C[8X[11;22r[11;1H[L[r[11;1H                [30m[103mprintf(B[m([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[K[23;10H(B[0;7m                                                     10,3-17 [11;17H[?25h[?25l(B[m[13B[37X:q![2 q[?1002l[?1006l[24;1H[?25h[?25l[2 q[?1002h[?1006h[?25h[?25l[2 q[?1002l[?1006l(B[m[?25h[0 q[?1l>[>4;0m[?2004l[?1004l[c[?25h[?25l[?1049l[23;0;0t[?25h

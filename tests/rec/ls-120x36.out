@@ -1,0 +1,44 @@
+/usr/lib/systemd:
+[0m[01;34mboot[0m/                            [01;32msystemd-hostnamed[0m*             [01;32msystemd-rfkill[0m*
+[01;34mcatalog[0m/                         [01;32msystemd-imds[0m*                  [01;32msystemd-sbsign[0m*
+import-pubring.pgp               [01;32msystemd-imdsd[0m*                 [01;32msystemd-shutdown[0m*
+[01;34minitrd-preset[0m/                   [01;32msystemd-import[0m*                [01;32msystemd-sleep[0m*
+[01;32mlibsystemd-core-261.3-1.so[0m*      [01;32msystemd-import-fs[0m*             [01;32msystemd-socket-proxyd[0m*
+[01;32mlibsystemd-shared-261.3-1.so[0m*    [01;32msystemd-importd[0m*               [01;32msystemd-ssh-issue[0m*
+[01;34mnetwork[0m/                         [01;32msystemd-integritysetup[0m*        [01;32msystemd-ssh-proxy[0m*
+[01;34mntp-units.d[0m/                     [01;32msystemd-journal-gatewayd[0m*      [01;32msystemd-storage-block[0m*
+[01;34moci-registry[0m/                    [01;32msystemd-journal-remote[0m*        [01;32msystemd-storage-fs[0m*
+[01;34mportable[0m/                        [01;32msystemd-journal-upload[0m*        [01;32msystemd-storagetm[0m*
+[01;34mprofile.d[0m/                       [01;32msystemd-journald[0m*              [01;32msystemd-sulogin-shell[0m*
+[01;34mrepart[0m/                          [01;32msystemd-keyutil[0m*               [01;32msystemd-sysctl[0m*
+resolv.conf                      [01;32msystemd-localed[0m*               [01;36msystemd-sysroot-fstab-check[0m@
+[01;34mscripts[0m/                         [01;32msystemd-logind[0m*                [01;36msystemd-sysupdate[0m@
+[01;34mssh_config.d[0m/                    [01;32msystemd-machined[0m*              [01;32msystemd-sysupdated[0m*
+[01;34msshd_config.d[0m/                   [01;32msystemd-makefs[0m*                [01;32msystemd-time-wait-sync[0m*
+[01;34msystem[0m/                          [01;32msystemd-measure[0m*               [01;32msystemd-timedated[0m*
+[01;34msystem-environment-generators[0m/   [01;32msystemd-modules-load[0m*          [01;32msystemd-timesyncd[0m*
+[01;34msystem-generators[0m/               [01;32msystemd-mountfsd[0m*              [01;32msystemd-tpm2-clear[0m*
+[01;34msystem-preset[0m/                   [01;32msystemd-mountwork[0m*             [01;32msystemd-tpm2-setup[0m*
+[01;34msystem-shutdown[0m/                 [01;32msystemd-network-generator[0m*     [01;32msystemd-tpm2-swtpm[0m*
+[01;34msystem-sleep[0m/                    [01;32msystemd-networkd[0m*              [01;36msystemd-udevd[0m@
+[01;32msystemd[0m*                         [01;32msystemd-networkd-wait-online[0m*  [01;32msystemd-update-done[0m*
+[01;32msystemd-backlight[0m*               [01;32msystemd-nsresourced[0m*           [01;32msystemd-update-utmp[0m*
+[01;32msystemd-battery-check[0m*           [01;32msystemd-nsresourcework[0m*        [01;32msystemd-user-runtime-dir[0m*
+[01;32msystemd-binfmt[0m*                  [01;32msystemd-oomd[0m*                  [01;32msystemd-user-sessions[0m*
+[01;32msystemd-bless-boot[0m*              [01;32msystemd-pcrextend[0m*             [01;32msystemd-userdbd[0m*
+[01;32msystemd-boot-check-no-failures[0m*  [01;32msystemd-pcrlock[0m*               [01;32msystemd-userwork[0m*
+[01;32msystemd-bsod[0m*                    [01;32msystemd-portabled[0m*             [01;32msystemd-validatefs[0m*
+[01;32msystemd-coredump[0m*                [01;32msystemd-pstore[0m*                [01;32msystemd-vconsole-setup[0m*
+[01;36msystemd-cryptsetup[0m@              [01;32msystemd-pull[0m*                  [01;32msystemd-veritysetup[0m*
+[01;32msystemd-executor[0m*                [01;32msystemd-quotacheck[0m*            [01;32msystemd-volatile-root[0m*
+[01;32msystemd-export[0m*                  [01;32msystemd-random-seed[0m*           [01;32msystemd-xdg-autostart-condition[0m*
+[01;32msystemd-factory-reset[0m*           [01;32msystemd-remount-fs[0m*            [01;34muser[0m/
+[01;32msystemd-fsck[0m*                    [01;32msystemd-reply-password[0m*        [01;34muser-environment-generators[0m/
+[01;32msystemd-growfs[0m*                  [01;32msystemd-report[0m*                [01;34muser-generators[0m/
+[01;32msystemd-hibernate-resume[0m*        [01;32msystemd-report-basic[0m*          [01;34muser-preset[0m/
+[01;32msystemd-homed[0m*                   [01;32msystemd-report-cgroup[0m*         [01;34mvarlink-bridges[0m/
+[01;32msystemd-homework[0m*                [01;32msystemd-resolved[0m*
+
+/usr/share/terminfo:
+[01;34m1[0m/  [01;34m3[0m/  [01;34m5[0m/  [01;34m7[0m/  [01;34m9[0m/  [01;34mE[0m/  [01;34mM[0m/  [01;34mP[0m/  [01;34mX[0m/  [01;34mb[0m/  [01;34md[0m/  [01;34mf[0m/  [01;34mh[0m/  [01;34mj[0m/  [01;34ml[0m/  [01;34mn[0m/  [01;34mp[0m/  [01;34mr[0m/  [01;34mt[0m/  [01;34mv[0m/  [01;34mx[0m/
+[01;34m2[0m/  [01;34m4[0m/  [01;34m6[0m/  [01;34m8[0m/  [01;34mA[0m/  [01;34mL[0m/  [01;34mN[0m/  [01;34mQ[0m/  [01;34ma[0m/  [01;34mc[0m/  [01;34me[0m/  [01;34mg[0m/  [01;34mi[0m/  [01;34mk[0m/  [01;34mm[0m/  [01;34mo[0m/  [01;34mq[0m/  [01;34ms[0m/  [01;34mu[0m/  [01;34mw[0m/  [01;34mz[0m/

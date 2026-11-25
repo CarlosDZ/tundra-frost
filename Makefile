@@ -36,10 +36,20 @@ TEST_BUILD = $(BUILD)/test
 UNIT_FLAGS = -g -fsanitize=address,undefined -fno-omit-frame-pointer
 UNIT_TESTS = $(patsubst tests/unit/%.c,$(TEST_BUILD)/unit/%,$(wildcard tests/unit/*.c))
 
-$(TEST_BUILD)/unit/%: tests/unit/%.c tests/unit/test.h $(SRCS) $(HDRS)
+$(TEST_BUILD)/unit/%: tests/unit/%.c tests/unit/test.h tests/tools/dump.h \
+		$(SRCS) $(HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(TUNDRA_STD) $(CFLAGS) $(UNIT_FLAGS) $(TUNDRA_INC) -Itests/unit \
-		$(TUNDRA_DEFS) -o $@ $<
+		-Itests/tools $(TUNDRA_DEFS) -o $@ $<
+
+TEST_TOOLS = $(patsubst tests/tools/%.c,$(TEST_BUILD)/tools/%,$(wildcard tests/tools/*.c))
+
+$(TEST_BUILD)/tools/%: tests/tools/%.c tests/tools/dump.h $(SRCS) $(HDRS)
+	@mkdir -p $(dir $@)
+	$(CC) $(TUNDRA_STD) $(CFLAGS) $(TUNDRA_INC) -Itests/tools $(TUNDRA_DEFS) \
+		-o $@ $<
+
+tools: $(TEST_TOOLS)
 
 check-unit: $(UNIT_TESTS)
 	@rc=0; for t in $(UNIT_TESTS); do echo "# $$t"; $$t || rc=1; done; \
@@ -48,7 +58,7 @@ check-unit: $(UNIT_TESTS)
 check: check-unit $(TARGET)
 	@sh tests/sys/run.sh
 
-.PHONY: all install uninstall clean check check-unit
+.PHONY: all install uninstall clean check check-unit tools
 
 PREFIX ?= /usr
 DESTDIR ?=

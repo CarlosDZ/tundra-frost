@@ -1,0 +1,170 @@
+|oci-registry/                    systemd-journal-remote*        systemd-storage-fs*                                     |
+|portable/                        systemd-journal-upload*        systemd-storagetm*                                      |
+|profile.d/                       systemd-journald*              systemd-sulogin-shell*                                  |
+|repart/                          systemd-keyutil*               systemd-sysctl*                                         |
+|resolv.conf                      systemd-localed*               systemd-sysroot-fstab-check@                            |
+|scripts/                         systemd-logind*                systemd-sysupdate@                                      |
+|ssh_config.d/                    systemd-machined*              systemd-sysupdated*                                     |
+|sshd_config.d/                   systemd-makefs*                systemd-time-wait-sync*                                 |
+|system/                          systemd-measure*               systemd-timedated*                                      |
+|system-environment-generators/   systemd-modules-load*          systemd-timesyncd*                                      |
+|system-generators/               systemd-mountfsd*              systemd-tpm2-clear*                                     |
+|system-preset/                   systemd-mountwork*             systemd-tpm2-setup*                                     |
+|system-shutdown/                 systemd-network-generator*     systemd-tpm2-swtpm*                                     |
+|system-sleep/                    systemd-networkd*              systemd-udevd@                                          |
+|systemd*                         systemd-networkd-wait-online*  systemd-update-done*                                    |
+|systemd-backlight*               systemd-nsresourced*           systemd-update-utmp*                                    |
+|systemd-battery-check*           systemd-nsresourcework*        systemd-user-runtime-dir*                               |
+|systemd-binfmt*                  systemd-oomd*                  systemd-user-sessions*                                  |
+|systemd-bless-boot*              systemd-pcrextend*             systemd-userdbd*                                        |
+|systemd-boot-check-no-failures*  systemd-pcrlock*               systemd-userwork*                                       |
+|systemd-bsod*                    systemd-portabled*             systemd-validatefs*                                     |
+|systemd-coredump*                systemd-pstore*                systemd-vconsole-setup*                                 |
+|systemd-cryptsetup@              systemd-pull*                  systemd-veritysetup*                                    |
+|systemd-executor*                systemd-quotacheck*            systemd-volatile-root*                                  |
+|systemd-export*                  systemd-random-seed*           systemd-xdg-autostart-condition*                        |
+|systemd-factory-reset*           systemd-remount-fs*            user/                                                   |
+|systemd-fsck*                    systemd-reply-password*        user-environment-generators/                            |
+|systemd-growfs*                  systemd-report*                user-generators/                                        |
+|systemd-hibernate-resume*        systemd-report-basic*          user-preset/                                            |
+|systemd-homed*                   systemd-report-cgroup*         varlink-bridges/                                        |
+|systemd-homework*                systemd-resolved*                                                                      |
+|                                                                                                                        |
+|/usr/share/terminfo:                                                                                                    |
+|1/  3/  5/  7/  9/  E/  M/  P/  X/  b/  d/  f/  h/  j/  l/  n/  p/  r/  t/  v/  x/                                      |
+|2/  4/  6/  8/  A/  L/  N/  Q/  a/  c/  e/  g/  i/  k/  m/  o/  q/  s/  u/  w/  z/                                      |
+|                                                                                                                        |
+cursor 0,35
+style 0 0-11 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 0 33-54 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 0 64-81 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 1 0-7 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 1 33-54 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 1 64-80 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 2 0-8 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 2 33-48 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 2 64-84 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 3 0-5 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 3 33-47 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 3 64-77 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 4 33-47 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 4 64-90 fg=01000006 bg=00000000 ul=00000000 attr=0001
+style 5 0-6 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 5 33-46 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 5 64-80 fg=01000006 bg=00000000 ul=00000000 attr=0001
+style 6 0-11 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 6 33-48 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 6 64-81 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 7 0-12 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 7 33-46 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 7 64-85 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 8 0-5 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 8 33-47 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 8 64-80 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 9 0-28 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 9 33-52 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 9 64-80 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 10 0-16 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 10 33-48 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 10 64-81 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 11 0-12 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 11 33-49 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 11 64-81 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 12 0-14 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 12 33-57 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 12 64-81 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 13 0-11 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 13 33-48 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 13 64-76 fg=01000006 bg=00000000 ul=00000000 attr=0001
+style 14 0-6 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 14 33-60 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 14 64-82 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 15 0-16 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 15 33-51 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 15 64-82 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 16 0-20 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 16 33-54 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 16 64-87 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 17 0-13 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 17 33-44 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 17 64-84 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 18 0-17 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 18 33-49 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 18 64-78 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 19 0-29 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 19 33-47 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 19 64-79 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 20 0-11 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 20 33-49 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 20 64-81 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 21 0-15 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 21 33-46 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 21 64-85 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 22 0-17 fg=01000006 bg=00000000 ul=00000000 attr=0001
+style 22 33-44 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 22 64-82 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 23 0-15 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 23 33-50 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 23 64-84 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 24 0-13 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 24 33-51 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 24 64-94 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 25 0-20 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 25 33-50 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 25 64-67 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 26 0-11 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 26 33-54 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 26 64-90 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 27 0-13 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 27 33-46 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 27 64-78 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 28 0-23 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 28 33-52 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 28 64-74 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 29 0-12 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 29 33-53 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 29 64-78 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 30 0-15 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 30 33-48 fg=01000002 bg=00000000 ul=00000000 attr=0001
+style 33 0-0 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 4-4 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 8-8 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 12-12 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 16-16 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 20-20 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 24-24 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 28-28 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 32-32 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 36-36 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 40-40 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 44-44 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 48-48 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 52-52 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 56-56 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 60-60 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 64-64 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 68-68 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 72-72 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 76-76 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 33 80-80 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 0-0 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 4-4 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 8-8 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 12-12 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 16-16 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 20-20 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 24-24 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 28-28 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 32-32 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 36-36 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 40-40 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 44-44 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 48-48 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 52-52 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 56-56 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 60-60 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 64-64 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 68-68 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 72-72 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 76-76 fg=01000004 bg=00000000 ul=00000000 attr=0001
+style 34 80-80 fg=01000004 bg=00000000 ul=00000000 attr=0001

@@ -1,0 +1,127 @@
+[?1049h[22;0;0t[?1h=[H[2J[?2004h[?69$p[?2026$p[?2027$p[?2031$p[?2048$p[0m[4:3mP$qm\[?u[c]11;?[5n[?25h]11;?[5n[?25l(B[m[H                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        [1 q[?1002h[?1006h[H[?25h[?25l[?1004h[?25hP+q5463;524742;73657472676266;73657472676262\[0m[48;2;1;2;3mP$qm\[c[?25l(B[m[35B[J[93mE1568: Terminal did not respond to DSR request for 'background' color. Startup may be slower. :help 'ttyfast'[H(B[m/* Prueba de frost: acentos (á[1;31H é[1;33H í[1;35H ó[1;37H ú[1;39H ñ ç), anchos dobles (日本語) y un emoji ancho (  🙂[1;89H). */[K
+#include [92m<stdio.h>(B[m[K
+[K
+static int suma(int a, int b) {[K
+        (B[0;1mreturn(B[m a + b; /* ✓ estrecho */[K
+}[K
+[K
+int main(void) {[K
+        (B[0;1mfor(B[m (int i = 0; i < 10; i++)[K
+                printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[K
+        (B[0;1mreturn(B[m 0;[K
+}[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+(B[0;7msample.c                                                                                              1,1            All[2 q[2 q[H(B[m/* Prueba de frost: acentos (á[1;31H é[1;33H í[1;35H ó[1;37H ú[1;39H ñ ç), anchos dobles (日本語) y un emoji ancho (  🙂[1;89H). */[K
+#include [92m<stdio.h>(B[m[K
+[K
+static int suma(int a, int b) {[K
+        (B[0;1mreturn(B[m a + b; /* ✓ estrecho */[K
+}[K
+[K
+int main(void) {[K
+        (B[0;1mfor(B[m (int i = 0; i < 10; i++)[K
+                printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[K
+        (B[0;1mreturn(B[m 0;[K
+}[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+(B[0;7msample.c                                                                                              1,1            All
+(B[m[93mE1568: Terminal did not respond to DSR request for 'background' color. Startup may be slower. :help 'ttyfast'(B[m[K[H[?25h[?25l[36;110HG         [H[?25h[?25l[36;110H [8;16H(B[0;1;4m{
+
+
+
+}[35;104H(B[0;7m2,1[23A[?25h[?25l[36;110H(B[mgg[24A[?25h[?25l[36;110H  [8;16H{
+
+
+
+}[35;104H(B[0;7m,1 [H[?25h[?25l[36;110H(B[mo[H[?25h[?25l[36;110H [36;1H[92m-- INSERT --(B[m[K[2;34r[2;1H[L[r[2;1H[K[35;10H(B[0;7m[+]                                                                                          2[6 q[33A[?25h[?25l(B[mHola, ñandú[2;12H 日本[35;105H(B[0;7m21-17[2;17H[?25h[?25l(B[m[34B[12X[35;105H(B[0;7m18-15[2 q[2;15H[?25h[?25l[34B(B[m:set[Cnumber[2 q[?1002l[?1006l[36;1H[?25h[?25l[H  1 /* Prueba de frost: acentos (á[1;35H é[1;37H í[1;39H ó[1;41H ú[1;43H ñ ç), anchos dobles (日本語) y un emoji ancho (  🙂[1;93H). */
+  2 Hola, ñandú[2;16H 日本
+  3 #include [92m<stdio.h>
+(B[m  4 
+  5 static int suma(int a, int b) {
+  6         (B[0;1mreturn(B[m a + b; /* ✓ estrecho */
+  7 }
+  8 
+  9 int main(void) {
+ 10         (B[0;1mfor(B[m (int i = 0; i < 10; i++)
+ 11                 printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));
+ 12         (B[0;1mreturn(B[m 0;
+ 13 }[2 q[?1002h[?1006h[2;19H[?25h[?25l[34B[11X:vsplit[2 q[?1002l[?1006l[36;1H[?25h[?25l[2;3H  es (日本語) y un emoji ancho (  🙂[2;37H). */[3;3H2 Hola, ñandú[3;16H 日本  [4;3H3 #include [92m<stdio.h>[5;3H(B[m4 [31X[6;3H5 static int suma(int a, int b) {[7X[7;3H6         (B[0;1mreturn(B[m a + b; /* ✓ estrecho */[8;3H7 }[9;3H8 [16X[10;2H 9 int main(void) {[20X[11;3H0         (B[0;1mfor(B[m (int i = 0; i < 10; i++)[11X[12;3H1                 printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[13;3H2         (B[0;1mreturn(B[m 0;
+ 13 }[55X[1;61H│[2;61H│[3;61H│[4;61H│[5;61H│[6;61H│[7;61H│[8;61H│[9;61H│[10;61H│[11;61H│[12;61H│[13;61H│[14;61H│[15;61H│[16;61H│[17;61H│[18;61H│[19;61H│[20;61H│[21;61H│[22;61H│[23;61H│[24;61H│[25;61H│[26;61H│[27;61H│[28;61H│[29;61H│[30;61H│[31;61H│[32;61H│[33;61H│[34;61H│[35;43H(B[0;7m2,18-15        All[1;62H(B[m  1 /* Prueba de frost: acentos (á[1;96H é[1;98H í[1;100H ó[1;102H ú[1;104H ñ ç), anchos dob[2;62H    les (日本語) y un emoji ancho (  🙂[2;99H). */[3;62H  2 Hola, ñandú[3;77H 日本[4;62H  3 #include [92m<stdio.h>[5;62H(B[m  4 [6;62H  5 static int suma(int a, int b) {[7;62H  6         (B[0;1mreturn(B[m a + b; /* ✓ estrecho */[8;62H  7 }[9;62H  8 [10;62H  9 int main(void) {[11;62H 10         (B[0;1mfor(B[m (int i = 0; i < 10; i++)[12;62H 11                 printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[13;62H 12         (B[0;1mreturn(B[m 0;[14;63H13 }[K[15;62H~[16;62H~[17;62H~[18;62H~[19;62H~[20;62H~[21;62H~[22;62H~[23;62H~[24;62H~[25;62H~[26;62H~[27;62H~[28;62H~[29;62H~[30;62H~[31;62H~[32;62H~[33;62H~[34;62H~[35;62H(B[0;1;4msample.c [+]                             2,18-15        All[2 q[?1002h[?1006h[3;19H[?25h[?25l(B[m[33B[7X:q![2 q[?1002l[?1006l[36;1H[?25h[?25l[1;61Hes (日本語) y un emoji ancho (  🙂[1;93H). */[K[2;3H2 Hola, ñandú[2;16H 日本[83X[3;3H3 #include [92m<stdio.h>(B[m[59X[4;3H4 [79X[5;3H5 static int suma(int a, int b) {[30X[6;3H6         (B[0;1mreturn(B[m a + b; /* ✓ estrecho */[54X[7;3H7 }[98X[8;3H8 [62X[9;3H9 int main(void) {[45X[10;2H10         (B[0;1mfor(B[m (int i = 0; i < 10; i++)[41X[11;3H1                 printf([92m"(B[m[96m%d\n(B[m[92m"(B[m, suma(i, i * 2));[50X[12;3H2         (B[0;1mreturn(B[m 0;[91X[13;3H3 }[77X
+~[K[15;61H  [16;61H  [17;61H  [18;61H  [19;61H  [20;61H  [21;61H  [22;61H  [23;61H  [24;61H  [25;61H  [26;61H  [27;61H  [28;61H  [29;61H  [30;61H  [31;61H  [32;61H  [33;61H  [34;61H  [35;43H(B[0;7m                                                            2,18-15        All[2 q[?1002h[?1006h[2;19H[?25h[?25l(B[m[34B   [36;1H:q![2 q[?1002l[?1006l[36;1H[?25h[?25l[2 q[?1002h[?1006h[?25h[?25l[2 q[?1002l[?1006l(B[m[?25h[0 q[?1l>[>4;0m[?2004l[?1004l[c[?25h[?25l[?1049l[23;0;0t[?25h

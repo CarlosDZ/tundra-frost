@@ -1,0 +1,51 @@
+|negrita tenue cursiva tachado inverso simple doble ondulado punteado discontinuo rojo                                   |
+|verde 24 bits naranja 256 fondo rojo                                                                                    |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+|                                                                                                                        |
+cursor 0,2
+style 0 0-6 fg=00000000 bg=00000000 ul=00000000 attr=0001
+style 0 8-12 fg=00000000 bg=00000000 ul=00000000 attr=0002
+style 0 14-20 fg=00000000 bg=00000000 ul=00000000 attr=0004
+style 0 22-28 fg=00000000 bg=00000000 ul=00000000 attr=0040
+style 0 30-36 fg=00000000 bg=00000000 ul=00000000 attr=0010
+style 0 38-43 fg=00000000 bg=00000000 ul=00000000 attr=0100
+style 0 45-49 fg=00000000 bg=00000000 ul=00000000 attr=0200
+style 0 51-58 fg=00000000 bg=00000000 ul=00000000 attr=0300
+style 0 60-67 fg=00000000 bg=00000000 ul=00000000 attr=0400
+style 0 69-79 fg=00000000 bg=00000000 ul=00000000 attr=0500
+style 0 81-84 fg=00000000 bg=00000000 ul=02ff0000 attr=0300
+style 1 0-12 fg=0266dc5c bg=00000000 ul=00000000 attr=0000
+style 1 14-24 fg=010000d0 bg=00000000 ul=00000000 attr=0000
+style 1 26-35 fg=0100000f bg=01000001 ul=00000000 attr=0000
