@@ -101,10 +101,26 @@ reader() {
 }
 
 point() {
+	cx=${2:-4} cy=${3:-2}
 	set -- $(windows | awk -v a="$1" '$3 == a { print $6, $7, $8, $9 }')
 	cols=$(($3 / 16)) rows=$(($4 / 24))
-	"$ask" move $(($1 + ($3 - cols * 16) / 2 + 4 * 16 + 8)) \
-		$(($2 + ($4 - rows * 24) / 2 + 2 * 24 + 12)) >/dev/null
+	"$ask" move $(($1 + ($3 - cols * 16) / 2 + cx * 16 + 8)) \
+		$(($2 + ($4 - rows * 24) / 2 + cy * 24 + 12)) >/dev/null
+}
+
+keyboard_on() {
+	"$ask" focus | awk '$1 == "focus" { print $3 }'
+}
+
+close_detached() {
+	for n in $($client ls "$WORK/frost" | awk '$3 == "detached" { print $1 }'); do
+		$client attach "$WORK/frost/$n" 20 3 -c >/dev/null
+	done
+}
+
+click() {
+	"$ask" button down >/dev/null
+	"$ask" button up >/dev/null
 }
 
 finish() {
@@ -237,6 +253,49 @@ check "$(hex "$WORK/wheelm")" \
 	"1b 5b 3c 36 34 3b 35 3b 33 4d 1b 5b 3c 36 34 3b 35 3b 33 4d" \
 	"to a program that asks, the touchpad is the wheel, a line a cell"
 
+FROST_TEST_LOG=$WORK/log.clipa $frost --app-id clipa sh -c \
+	'printf "hola mundo"; sleep 4' &
+clipa=$!
+wait_window clipa
+sleep 0.3
+export FROST_TEST_LOG=$WORK/log.clipb
+reader clipb "printf '\\033[?2004h';" "head -c 17"
+unset FROST_TEST_LOG
+point clipa 7 0
+on_a=$(keyboard_on)
+click
+click
+chord 29 42 46
+point clipb
+on_b=$(keyboard_on)
+chord 29 42 47
+wait_end $win
+want="1b 5b 32 30 30 7e 6d 75 6e 64 6f 1b 5b 32 30 31 7e"
+if [ "$(hex "$WORK/clipb")" != "$want" ]; then
+	echo "# keyboard on $on_a, then on $on_b"
+	sed 's/^/# clipa: /' "$WORK/log.clipa" 2>/dev/null
+	sed 's/^/# clipb: /' "$WORK/log.clipb" 2>/dev/null
+fi
+check "$(hex "$WORK/clipb")" "$want" \
+	"a word copied with two clicks in one window is pasted in another"
+wait_end $clipa
+
+$frost --app-id osc sh -c \
+	'sleep 1; printf "\033]52;c;%s\007" "$(printf "x\033[201~y" | base64)"; sleep 3' &
+osc=$!
+wait_window osc
+point osc
+click
+sleep 1.2
+reader oscb "printf '\\033[?2004h';" "head -c 19"
+point oscb
+chord 29 42 47
+wait_end $win
+check "$(hex "$WORK/oscb")" \
+	"1b 5b 32 30 30 7e 78 5b 32 30 31 7e 79 1b 5b 32 30 31 7e" \
+	"OSC 52 writes the clipboard, and a pasted ESC [ 201 ~ does not end the paste"
+wait_end $osc
+
 FROST_TEST_DUMP=$WORK/back.png $frost --app-id back sh -c \
 	'echo B; for i in $(seq 100); do echo A; done; sleep 1.5' &
 win=$!
@@ -250,6 +309,7 @@ printf 'B\r\nA\r\nA\r\nA\r\nA\r\nA\033[?25l' >"$WORK/back.txt"
 check "$("$picture" same "$WORK/back.png" "$WORK/back-want.png")" "" \
 	"the touchpad goes back to the first line of the history"
 
+close_detached
 $frost --app-id frost-fall sh -c 'printf tres; sleep 30' &
 win=$!
 wait_window frost-fall

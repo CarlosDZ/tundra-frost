@@ -17,6 +17,8 @@ struct view {
 	int cursor_visible, cursor_shape, cursor_blink, reverse;
 	const uint32_t *palette;
 	const uint8_t *palette_set;
+	const uint8_t *lines;
+	int sel_from, sel_to;
 };
 
 struct render {
@@ -25,6 +27,7 @@ struct render {
 	int ox, oy;
 	int width, height;
 	uint32_t theme[PAL_SLOTS];
+	uint32_t selection;
 };
 
 int render_init(struct render *r, int size);

@@ -14,6 +14,7 @@ static const uint32_t base16[16] = {
 };
 #define DEFAULT_BG 0x141a1e
 #define DEFAULT_TEXT 0xccd2d6
+#define DEFAULT_BORDER 0x3e494f
 
 static uint32_t opaque(uint32_t rgb) { return 0xFF000000u | (rgb & 0xFFFFFF); }
 
@@ -45,6 +46,7 @@ void render_theme(struct render *r, const struct tdraw_theme *t) {
 	r->theme[PAL_BG] =
 	    theme_pick(t, "frost.background", "background", DEFAULT_BG);
 	r->theme[PAL_CURSOR] = theme_pick(t, "frost.cursor", "text", DEFAULT_TEXT);
+	r->selection = theme_pick(t, "frost.selection", "border", DEFAULT_BORDER);
 }
 
 int render_init(struct render *r, int size) {
@@ -231,17 +233,26 @@ static void decorate(struct render *r, struct tdraw_canvas *c,
 		tdraw_fill(c, px, py, w, t, fg);
 }
 
+static uint32_t back(const struct render *r, const struct view *v,
+                     const struct cell *c, int i) {
+	uint32_t fg, bg;
+	if (i >= v->sel_from && i < v->sel_to)
+		return r->selection;
+	colors(r, v, c, &fg, &bg);
+	return bg;
+}
+
 void render_row(struct render *r, struct tdraw_canvas *c, const struct view *v,
                 int y) {
 	const struct cell *row = v->cells + (size_t)v->map[y] * v->cols;
-	int py = r->oy + y * r->ch;
+	int py = r->oy + y * r->ch, at = y * v->cols;
 	uint32_t fg, bg, fg2, bg2;
 
 	for (int x = 0; x < v->cols;) {
-		colors(r, v, &row[x], &fg, &bg);
+		bg = back(r, v, &row[x], at + x);
 		int k = x + 1;
 		while (k < v->cols) {
-			colors(r, v, &row[k], &fg2, &bg2);
+			bg2 = back(r, v, &row[k], at + k);
 			if (bg2 != bg)
 				break;
 			k++;

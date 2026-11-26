@@ -67,7 +67,8 @@ static void start(const char *seq) {
 	v = (struct view){
 	    s.cols,    s.rows,    g->cells,         g->map,         s.x,
 	    s.y,       s.pending, s.cursor_visible, s.cursor_shape, s.cursor_blink,
-	    s.reverse, s.palette, s.palette_set};
+	    s.reverse, s.palette, s.palette_set,    NULL,           0,
+	    0};
 	memset(px, 0, sizeof(px));
 }
 

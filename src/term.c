@@ -23,6 +23,7 @@
 #include "shm.h"
 
 #define HISTORY_BYTES (32u << 20)
+#define INPUT_MAX (16u << 20)
 #define SYNC_MAX_MS 150
 #define TERMS_MAX 999
 #define FIRST_MSG_MS 500
@@ -40,6 +41,8 @@ static struct term {
 	pid_t pid;
 	struct mapping cur;
 	int waiting, changed, full, synced;
+	uint8_t *inq;
+	size_t inq_len, inq_cap;
 	int offset;
 	struct cell *line;
 	int *starts;
@@ -240,22 +243,50 @@ static void notify(void) {
 	t.changed = t.full = 0;
 }
 
-static void write_all(int fd, const uint8_t *p, size_t n) {
-	while (n) {
-		ssize_t k = write(fd, p, n);
+static size_t write_some(const uint8_t *p, size_t n) {
+	size_t done = 0;
+	while (done < n) {
+		ssize_t k = write(t.master, p + done, n - done);
 		if (k < 0 && errno == EINTR)
 			continue;
 		if (k <= 0)
-			return;
-		p += k, n -= (size_t)k;
+			break;
+		done += (size_t)k;
 	}
+	return done;
+}
+
+static void flush_input(void) {
+	size_t k = write_some(t.inq, t.inq_len);
+	memmove(t.inq, t.inq + k, t.inq_len - k);
+	t.inq_len -= k;
+}
+
+static void to_program(const uint8_t *p, size_t n) {
+	size_t k = t.inq_len ? 0 : write_some(p, n);
+	p += k, n -= k;
+	if (!n)
+		return;
+	if (t.inq_len + n > INPUT_MAX)
+		return;
+	if (t.inq_len + n > t.inq_cap) {
+		size_t cap = t.inq_cap ? t.inq_cap : 4096;
+		while (cap < t.inq_len + n)
+			cap *= 2;
+		uint8_t *q = realloc(t.inq, cap);
+		if (!q)
+			return;
+		t.inq = q, t.inq_cap = cap;
+	}
+	memcpy(t.inq + t.inq_len, p, n);
+	t.inq_len += n;
 }
 
 static void feed(const uint8_t *p, size_t n) {
 	scr_feed(&t.scr, p, n);
 	t.changed = 1;
 	if (t.scr.reply_len) {
-		write_all(t.master, t.scr.reply, t.scr.reply_len);
+		to_program(t.scr.reply, t.scr.reply_len);
 		t.scr.reply_len = 0;
 	}
 }
@@ -330,7 +361,7 @@ static void from_window(void) {
 	}
 	switch (type) {
 	case MSG_INPUT:
-		write_all(t.master, (uint8_t *)t.buf, (size_t)n);
+		to_program((uint8_t *)t.buf, (size_t)n);
 		break;
 	case MSG_RESIZE:
 		if ((size_t)n == sizeof(struct msg_resize))
@@ -522,6 +553,7 @@ int main(int argc, char **argv) {
 	t.master = pty_spawn(cmd, cols, rows, &t.pid);
 	if (t.master < 0)
 		return 1;
+	fcntl(t.master, F_SETFL, O_NONBLOCK);
 	listen_numbered();
 #ifndef FROST_NO_SECCOMP
 	if (sandbox_term(t.master, t.dirfd, t.pid) < 0)
@@ -537,7 +569,8 @@ int main(int argc, char **argv) {
 	for (;;) {
 		struct pollfd p[4] = {{t.sig, POLLIN, 0},
 		                      {t.win, POLLIN, 0},
-		                      {pty_open ? t.master : -1, POLLIN, 0},
+		                      {pty_open ? t.master : -1,
+		                       (short)(POLLIN | (t.inq_len ? POLLOUT : 0)), 0},
 		                      {t.lsock, POLLIN, 0}};
 		int timeout = -1;
 		if (!t.waiting && t.changed && t.scr.sync) {
@@ -548,6 +581,8 @@ int main(int argc, char **argv) {
 			perror("poll error");
 			return 1;
 		}
+		if (p[2].revents & POLLOUT)
+			flush_input();
 		if (p[2].revents & (POLLIN | POLLHUP | POLLERR))
 			if (read_pty() < 0)
 				pty_open = 0;

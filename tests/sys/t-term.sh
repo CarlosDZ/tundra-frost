@@ -57,6 +57,10 @@ exit 0" "and keeps showing them while the program writes on"
 check "$($client $term 20 3 -w 300 -b 50 -- sh -c 'seq 1 10; sleep 0.5' | head -1)" "|1" \
 	"it stops at the first line"
 
+lines=$(awk 'BEGIN { for (i = 0; i < 1000; i++) printf "%099d\\n", 0 }')
+check "$($client $term 20 3 -i "$lines" -- sh -c 'sleep 0.5; head -c 100000 | wc -c' | grep -c '^|100000$')" \
+	"1" "100 KB typed into a program that reads late all reach it"
+
 start=$(date +%s%N)
 last=$($client $term 20 3 -s 200 -- seq 1 100000 | grep -c '^|100000$')
 ms=$((($(date +%s%N) - start) / 1000000))

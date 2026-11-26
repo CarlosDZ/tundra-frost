@@ -20,8 +20,10 @@
 
 #include "kbd.h"
 #include "mouse.h"
+#include "paste.h"
 #include "proto.h"
 #include "render.h"
+#include "select.h"
 #include "shm.h"
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
@@ -32,6 +34,8 @@
 #define DEFAULT_ROWS 24
 #define WHEEL_LINES 3
 #define CURSOR_SIZE 24
+#define CLICK_MS 400
+#define PASTE_MAX (16u << 20)
 
 struct buffer {
 	struct wl_buffer *wl;
@@ -63,6 +67,17 @@ static struct win {
 	int last_x, last_y;
 	double scroll;
 	int value120, discrete, finger;
+
+	int sel_on, selecting, sel_mode, sel_anchor, sel_head, clicks, click_pos;
+	uint32_t click_time, sel_offset;
+	uint32_t serial;
+	struct wl_data_device_manager *ddm;
+	struct wl_data_device *dd;
+	struct wl_data_source *source;
+	struct wl_data_offer *offer;
+	char *clip, *paste;
+	size_t clip_len, paste_len, paste_cap;
+	int paste_fd;
 
 	int next_w, next_h, next_focus, configured, focused;
 	struct buffer buf[2], *shown;
@@ -102,6 +117,9 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
 	else if (strcmp(iface, wl_seat_interface.name) == 0 && !w.seat)
 		w.seat = wl_registry_bind(reg, name, &wl_seat_interface,
 		                          version < 8 ? version : 8);
+	else if (strcmp(iface, wl_data_device_manager_interface.name) == 0)
+		w.ddm = wl_registry_bind(reg, name, &wl_data_device_manager_interface,
+		                         version < 3 ? version : 3);
 	else if (strcmp(iface, zxdg_decoration_manager_v1_interface.name) == 0)
 		w.deco_mgr = wl_registry_bind(reg, name,
 		                              &zxdg_decoration_manager_v1_interface, 1);
@@ -241,8 +259,29 @@ static int view_of(struct view *v) {
 	                   h->cursor_blink,
 	                   h->reverse,
 	                   h->palette,
-	                   h->palette_set};
+	                   h->palette_set,
+	                   w.map + l.lines,
+	                   0,
+	                   0};
+	if (w.sel_on)
+		select_span(v, w.sel_anchor, w.sel_head, w.sel_mode, &v->sel_from,
+		            &v->sel_to);
 	return 0;
+}
+
+static void keep_selection(struct view *v, const uint8_t *dirty) {
+	const struct shm_head *h = (const struct shm_head *)w.map;
+	if (!w.sel_on || w.selecting)
+		return;
+	int gone = h->offset != w.sel_offset;
+	for (int y = v->sel_from / v->cols; y <= (v->sel_to - 1) / v->cols && !gone;
+	     y++)
+		gone = w.damage && y < v->rows && dirty[y];
+	if (gone) {
+		w.sel_on = 0;
+		v->sel_from = v->sel_to = 0;
+		w.full = 1;
+	}
 }
 
 static void blink_arm(int on) {
@@ -269,6 +308,7 @@ static void draw(void) {
 	struct buffer *other = b == &w.buf[0] ? &w.buf[1] : &w.buf[0];
 	const uint8_t *dirty = w.map + shm_layout(v.cols, v.rows).dirty;
 	int rows = v.rows < w.rows ? v.rows : w.rows;
+	keep_selection(&v, dirty);
 
 	int blinks = w.focused && v.cursor_visible && v.cursor_blink;
 	if (blinks != w.blinking || (blinks && w.damage && v.y != w.cur_y))
@@ -341,6 +381,219 @@ static void repeat_arm(uint32_t key) {
 	w.rep_key = key;
 }
 
+static void scroll_history(int32_t rows) {
+	if (w.sock >= 0)
+		msg_send(w.sock, MSG_SCROLL, &rows, sizeof(rows), -1);
+}
+
+#ifdef FROST_TEST
+static void test_log(const char *what, long n) {
+	const char *path = getenv("FROST_TEST_LOG");
+	FILE *f = path ? fopen(path, "a") : NULL;
+	if (f) {
+		fprintf(f, "%s %ld\n", what, n);
+		fclose(f);
+	}
+}
+#else
+#define test_log(what, n) ((void)0)
+#endif
+
+static void source_target(void *data, struct wl_data_source *src,
+                          const char *mime) {
+	(void)data, (void)src, (void)mime;
+}
+
+static void source_send(void *data, struct wl_data_source *src,
+                        const char *mime, int fd) {
+	(void)data, (void)mime;
+	fcntl(fd, F_SETFL, 0);
+	for (size_t done = 0; src == w.source && done < w.clip_len;) {
+		ssize_t k = write(fd, w.clip + done, w.clip_len - done);
+		if (k < 0 && errno == EINTR)
+			continue;
+		if (k <= 0)
+			break;
+		done += (size_t)k;
+	}
+	close(fd);
+}
+
+static void source_cancelled(void *data, struct wl_data_source *src) {
+	(void)data;
+	if (src == w.source) {
+		w.source = NULL;
+		free(w.clip);
+		w.clip = NULL, w.clip_len = 0;
+	}
+	wl_data_source_destroy(src);
+}
+
+static const struct wl_data_source_listener source_listener = {
+    .target = source_target,
+    .send = source_send,
+    .cancelled = source_cancelled,
+};
+
+static void set_clipboard(char *text, size_t len) {
+	if (!w.dd || !text || !len) {
+		free(text);
+		return;
+	}
+	if (w.source)
+		wl_data_source_destroy(w.source);
+	free(w.clip);
+	w.clip = text, w.clip_len = len;
+	test_log("clipboard, bytes", (long)len);
+	w.source = wl_data_device_manager_create_data_source(w.ddm);
+	wl_data_source_add_listener(w.source, &source_listener, NULL);
+	wl_data_source_offer(w.source, "text/plain;charset=utf-8");
+	wl_data_source_offer(w.source, "text/plain");
+	wl_data_source_offer(w.source, "UTF8_STRING");
+	wl_data_device_set_selection(w.dd, w.source, w.serial);
+}
+
+static void copy(void) {
+	struct view v;
+	size_t n;
+	test_log("copy, selection", w.sel_on);
+	if (!w.sel_on || view_of(&v) < 0 || v.sel_to <= v.sel_from)
+		return;
+	char *text = select_text(&v, v.sel_from, v.sel_to, &n);
+	set_clipboard(text, n);
+}
+
+static void paste_text(const char *t, size_t n) {
+	const struct shm_head *h = head();
+	char *out = malloc(n + PASTE_WRAP);
+	if (!out || !h) {
+		free(out);
+		return;
+	}
+	size_t m = paste_filter(t, n, h->bracketed_paste, out);
+	if (h->offset)
+		scroll_history(INT32_MIN);
+	for (size_t i = 0; i < m; i += MSG_MAX)
+		input(out + i, m - i < MSG_MAX ? m - i : MSG_MAX);
+	free(out);
+}
+
+struct mimes {
+	int utf8, plain, utf8_string;
+};
+
+static void offer_mime(void *data, struct wl_data_offer *o, const char *mime) {
+	(void)o;
+	struct mimes *m = data;
+	m->utf8 |= !strcmp(mime, "text/plain;charset=utf-8");
+	m->plain |= !strcmp(mime, "text/plain");
+	m->utf8_string |= !strcmp(mime, "UTF8_STRING");
+}
+
+static void offer_actions(void *data, struct wl_data_offer *o, uint32_t a) {
+	(void)data, (void)o, (void)a;
+}
+
+static const struct wl_data_offer_listener offer_listener = {
+    .offer = offer_mime,
+    .source_actions = offer_actions,
+    .action = offer_actions,
+};
+
+static void drop_offer(struct wl_data_offer *o) {
+	if (o) {
+		free(wl_data_offer_get_user_data(o));
+		wl_data_offer_destroy(o);
+	}
+}
+
+static void paste(void) {
+	test_log("paste, offer", w.source ? 2 : w.offer != NULL);
+	if (w.source) {
+		paste_text(w.clip, w.clip_len);
+		return;
+	}
+	if (!w.offer || w.paste_fd >= 0)
+		return;
+	struct mimes *m = wl_data_offer_get_user_data(w.offer);
+	const char *mime = m->utf8          ? "text/plain;charset=utf-8"
+	                   : m->utf8_string ? "UTF8_STRING"
+	                   : m->plain       ? "text/plain"
+	                                    : NULL;
+	int fds[2];
+	if (!mime || pipe2(fds, O_CLOEXEC | O_NONBLOCK) < 0)
+		return;
+	wl_data_offer_receive(w.offer, mime, fds[1]);
+	close(fds[1]);
+	w.paste_fd = fds[0], w.paste_len = 0;
+}
+
+static void paste_read(void) {
+	if (w.paste_len + 65536 > w.paste_cap && w.paste_cap < PASTE_MAX) {
+		size_t cap = w.paste_cap ? w.paste_cap * 2 : 65536;
+		char *p = realloc(w.paste, cap);
+		if (p)
+			w.paste = p, w.paste_cap = cap;
+	}
+	ssize_t k =
+	    w.paste_len < w.paste_cap
+	        ? read(w.paste_fd, w.paste + w.paste_len, w.paste_cap - w.paste_len)
+	        : 0;
+	if (k < 0 && (errno == EAGAIN || errno == EINTR))
+		return;
+	if (k > 0) {
+		w.paste_len += (size_t)k;
+		return;
+	}
+	close(w.paste_fd);
+	w.paste_fd = -1;
+	test_log("pasted, bytes", (long)w.paste_len);
+	paste_text(w.paste, w.paste_len);
+}
+
+static void dd_offer(void *data, struct wl_data_device *dd,
+                     struct wl_data_offer *o) {
+	(void)data, (void)dd;
+	struct mimes *m = calloc(1, sizeof(*m));
+	if (!m) {
+		wl_data_offer_destroy(o);
+		return;
+	}
+	wl_data_offer_add_listener(o, &offer_listener, m);
+}
+
+static void dd_enter(void *data, struct wl_data_device *dd, uint32_t serial,
+                     struct wl_surface *s, wl_fixed_t x, wl_fixed_t y,
+                     struct wl_data_offer *o) {
+	(void)data, (void)dd, (void)serial, (void)s, (void)x, (void)y;
+	drop_offer(o);
+}
+
+static void dd_leave(void *data, struct wl_data_device *dd) {
+	(void)data, (void)dd;
+}
+
+static void dd_motion(void *data, struct wl_data_device *dd, uint32_t time,
+                      wl_fixed_t x, wl_fixed_t y) {
+	(void)data, (void)dd, (void)time, (void)x, (void)y;
+}
+
+static void dd_selection(void *data, struct wl_data_device *dd,
+                         struct wl_data_offer *o) {
+	(void)data, (void)dd;
+	drop_offer(w.offer);
+	w.offer = o;
+}
+
+static const struct wl_data_device_listener dd_listener = {
+    .data_offer = dd_offer,
+    .enter = dd_enter,
+    .leave = dd_leave,
+    .motion = dd_motion,
+    .drop = dd_leave,
+    .selection = dd_selection,
+};
+
 static int shortcut(const struct key *k) {
 	uint32_t c = k->code < 128 ? k->code : k->base;
 	if ((k->mods & (MOD_SHIFT | MOD_CTRL | MOD_ALT | MOD_SUPER)) !=
@@ -349,14 +602,16 @@ static int shortcut(const struct key *k) {
 	return c == 'c' || c == 'v' || c == ' ' ? (int)c : 0;
 }
 
-static void scroll_history(int32_t rows) {
-	if (w.sock >= 0)
-		msg_send(w.sock, MSG_SCROLL, &rows, sizeof(rows), -1);
-}
-
 static void on_key(uint32_t evdev, int type) {
 	struct key k;
-	if (kbd_key(&w.kbd, evdev, type, &k) < 0 || shortcut(&k))
+	if (kbd_key(&w.kbd, evdev, type, &k) < 0)
+		return;
+	int sc = shortcut(&k);
+	if (sc && type == KEY_PRESS && sc == 'c')
+		copy();
+	else if (sc && type == KEY_PRESS && sc == 'v')
+		paste();
+	if (sc)
 		return;
 	const struct shm_head *h = head();
 	struct key_modes m = {0, 0, 0};
@@ -396,8 +651,10 @@ static void kb_leave(void *data, struct wl_keyboard *kb, uint32_t serial,
 
 static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
                    uint32_t time, uint32_t key, uint32_t state) {
-	(void)data, (void)kb, (void)serial, (void)time;
+	(void)data, (void)kb, (void)time;
 	int down = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+	if (down)
+		w.serial = serial;
 	on_key(key, down ? KEY_PRESS : KEY_RELEASE);
 	if (down && kbd_repeats(&w.kbd, key))
 		repeat_arm(key);
@@ -482,11 +739,49 @@ static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
 	w.held = MB_NONE;
 }
 
+static int cell_index(void) {
+	const struct shm_head *h = head();
+	struct mouse_event e;
+	pointer_at(&e);
+	int cols = h ? h->cols : w.cols, rows = h ? h->rows : w.rows;
+	int col = e.col < cols ? e.col : cols - 1;
+	int row = e.row < rows ? e.row : rows - 1;
+	return row * cols + col;
+}
+
+static void select_press(uint32_t time) {
+	const struct shm_head *h = head();
+	int pos = cell_index();
+	if (pos == w.click_pos && time - w.click_time < CLICK_MS && w.clicks < 3)
+		w.clicks++;
+	else
+		w.clicks = 1;
+	w.click_pos = pos, w.click_time = time;
+	w.sel_mode = w.clicks == 1   ? SELECT_CELLS
+	             : w.clicks == 2 ? SELECT_WORDS
+	                             : SELECT_LINES;
+	w.sel_anchor = w.sel_head = pos;
+	w.sel_offset = h ? h->offset : 0;
+	w.selecting = 1;
+	w.sel_on = w.clicks > 1;
+	w.full = 1;
+	test_log("click", w.clicks);
+}
+
 static void ptr_motion(void *data, struct wl_pointer *p, uint32_t time,
                        wl_fixed_t x, wl_fixed_t y) {
 	(void)data, (void)p, (void)time;
 	w.px = wl_fixed_to_double(x), w.py = wl_fixed_to_double(y);
 	set_cursor();
+	if (w.selecting) {
+		int pos = cell_index();
+		if (pos != w.sel_head) {
+			w.sel_head = pos;
+			w.sel_on = 1;
+			w.full = 1;
+		}
+		return;
+	}
 	const struct shm_head *h = head();
 	struct mouse_event e;
 	pointer_at(&e);
@@ -516,15 +811,20 @@ static int button_of(uint32_t b) {
 
 static void ptr_button(void *data, struct wl_pointer *p, uint32_t serial,
                        uint32_t time, uint32_t button, uint32_t state) {
-	(void)data, (void)p, (void)serial, (void)time;
+	(void)data, (void)p;
 	int b = button_of(button);
 	if (b < 0)
 		return;
 	if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+		w.serial = serial;
 		w.held = b;
-		report(MOUSE_DOWN, b);
+		if (!report(MOUSE_DOWN, b) && b == MB_LEFT)
+			select_press(time);
 	} else {
-		report(MOUSE_UP, b);
+		if (w.selecting && b == MB_LEFT)
+			w.selecting = 0;
+		else
+			report(MOUSE_UP, b);
 		if (w.held == b)
 			w.held = MB_NONE;
 	}
@@ -761,6 +1061,15 @@ static void from_term(void) {
 			set_cursor();
 		}
 		break;
+	case MSG_CLIPBOARD: {
+		char *text = malloc((size_t)n);
+		long len = text ? base64_decode(w.msg, (size_t)n, text) : -1;
+		if (len > 0)
+			set_clipboard(text, (size_t)len);
+		else
+			free(text);
+		break;
+	}
 	case MSG_TITLE:
 		w.msg[n] = 0;
 		xdg_toplevel_set_title(w.top, w.msg);
@@ -823,6 +1132,10 @@ static int open_window(const struct cli *c) {
 	w.last_x = w.last_y = -1;
 	if (w.seat)
 		wl_seat_add_listener(w.seat, &seat_listener, NULL);
+	if (w.seat && w.ddm) {
+		w.dd = wl_data_device_manager_get_data_device(w.ddm, w.seat);
+		wl_data_device_add_listener(w.dd, &dd_listener, NULL);
+	}
 	w.surf = wl_compositor_create_surface(w.comp);
 	w.xs = xdg_wm_base_get_xdg_surface(w.wm, w.surf);
 	xdg_surface_add_listener(w.xs, &xs_listener, NULL);
@@ -854,6 +1167,17 @@ static void close_window(void) {
 		xdg_surface_destroy(w.xs);
 	if (w.surf)
 		wl_surface_destroy(w.surf);
+	drop_offer(w.offer);
+	if (w.source)
+		wl_data_source_destroy(w.source);
+	if (w.dd)
+		wl_data_device_release(w.dd);
+	if (w.ddm)
+		wl_data_device_manager_destroy(w.ddm);
+	free(w.clip);
+	free(w.paste);
+	if (w.paste_fd >= 0)
+		close(w.paste_fd);
 	if (w.keyboard)
 		wl_keyboard_destroy(w.keyboard);
 	if (w.pointer)
@@ -887,13 +1211,14 @@ static void loop(const struct cli *c) {
 			wl_display_cancel_read(w.dpy);
 			return;
 		}
-		struct pollfd p[5] = {
+		struct pollfd p[6] = {
 		    {wl_display_get_fd(w.dpy), POLLIN, 0},
 		    {w.sock, POLLIN, 0},
 		    {w.theme ? tdraw_theme_fd(w.theme) : -1, POLLIN, 0},
 		    {w.blink, POLLIN, 0},
-		    {w.rep, POLLIN, 0}};
-		if (poll(p, 5, -1) < 0 && errno != EINTR) {
+		    {w.rep, POLLIN, 0},
+		    {w.paste_fd, POLLIN, 0}};
+		if (poll(p, 6, -1) < 0 && errno != EINTR) {
 			wl_display_cancel_read(w.dpy);
 			perror("poll error");
 			return;
@@ -924,6 +1249,8 @@ static void loop(const struct cli *c) {
 			if (read(w.blink, &ticks, sizeof(ticks)) == sizeof(ticks))
 				w.lit = !w.lit, w.tick = 1;
 		}
+		if (p[5].revents & (POLLIN | POLLHUP | POLLERR))
+			paste_read();
 		if (p[4].revents & POLLIN) {
 			uint64_t ticks;
 			if (read(w.rep, &ticks, sizeof(ticks)) == sizeof(ticks) &&
@@ -936,6 +1263,7 @@ static void loop(const struct cli *c) {
 
 int win_run(const struct cli *c) {
 	w.sock = -1;
+	w.paste_fd = -1;
 	w.status = 1;
 	signal(SIGPIPE, SIG_IGN);
 	if (render_init(&w.r, FONT_SIZE) < 0)
