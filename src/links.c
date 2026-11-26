@@ -22,6 +22,38 @@ int link_allowed(const char *url) {
 	return 0;
 }
 
+static int hex(int c) {
+	return c >= '0' && c <= '9'   ? c - '0'
+	       : c >= 'a' && c <= 'f' ? c - 'a' + 10
+	       : c >= 'A' && c <= 'F' ? c - 'A' + 10
+	                              : -1;
+}
+
+int link_cwd(const char *uri, const char *host, char *out, size_t max) {
+	if (strncasecmp(uri, "file://", 7))
+		return -1;
+	const char *h = uri + 7, *path = strchr(h, '/');
+	size_t hl = path ? (size_t)(path - h) : 0;
+	if (!path || (hl && !(hl == 9 && !strncasecmp(h, "localhost", 9)) &&
+	              !(hl == strlen(host) && !strncasecmp(h, host, hl))))
+		return -1;
+	size_t n = 0;
+	for (const char *p = path; *p; p++) {
+		int c = (unsigned char)*p;
+		if (c == '%') {
+			if (hex(p[1]) < 0 || hex(p[2]) < 0)
+				return -1;
+			c = hex(p[1]) << 4 | hex(p[2]);
+			p += 2;
+		}
+		if (!c || n + 1 >= max)
+			return -1;
+		out[n++] = (char)c;
+	}
+	out[n] = 0;
+	return 0;
+}
+
 static int in_url(unsigned cp) {
 	return cp >= 0x80 ||
 	       (cp > 0x20 && cp < 0x7F && !strchr("\"<>`{}|\\^", (int)cp));

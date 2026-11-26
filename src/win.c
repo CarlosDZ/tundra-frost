@@ -51,6 +51,7 @@ struct tab {
 	int damage, closing, marked;
 	unsigned number;
 	char title[TERM_TITLE_MAX], name[TERM_NAME_MAX];
+	char cwd[PATH_MAX];
 };
 
 struct buffer {
@@ -1131,9 +1132,10 @@ static void focus_changed(void) {
 
 static const char *term_path(void) {
 #ifdef FROST_TEST
+	static char abs[PATH_MAX];
 	const char *p = getenv("FROST_TEST_TERM");
 	if (p && *p)
-		return p;
+		return realpath(p, abs) ? abs : p;
 #endif
 	return TUNDRA_FROST_TERM;
 }
@@ -1144,7 +1146,7 @@ static int term_rows(void) {
 
 static int line_shown(void) { return w.ntabs >= 2 || w.line_open; }
 
-static int spawn_term(char **cmd) {
+static int spawn_term(char **cmd, const char *cwd) {
 	if (w.ntabs == TABS_MAX)
 		return -1;
 	int sv[2];
@@ -1164,6 +1166,8 @@ static int spawn_term(char **cmd) {
 	if (pid == 0) {
 		if (sv[1] == 3 ? fcntl(3, F_SETFD, 0) < 0 : dup2(sv[1], 3) < 0)
 			_exit(127);
+		if (cwd && *cwd && chdir(cwd) < 0)
+			perror("chdir error");
 		char cols_s[16], rows_s[16];
 		snprintf(cols_s, sizeof(cols_s), "%d", w.cols);
 		snprintf(rows_s, sizeof(rows_s), "%d", rows);
@@ -1399,7 +1403,7 @@ static void run_line(void) {
 		line_toggle(0);
 		return;
 	case CMD_NEW:
-		if (spawn_term(NULL) < 0) {
+		if (spawn_term(NULL, T.cwd) < 0) {
 			say(1, "no room for another tab");
 			break;
 		}
@@ -1453,7 +1457,7 @@ static int apply_configure(const struct cli *c) {
 	render_fit(&w.r, width, height, &w.cols, &w.rows);
 	w.full = 1;
 	if (!w.ntabs)
-		return spawn_term(c->cmd) < 0 ? -1 : 0;
+		return spawn_term(c->cmd, NULL) < 0 ? -1 : 0;
 	resize_all();
 	return 0;
 }
@@ -1525,6 +1529,21 @@ static void from_term(int i) {
 			snprintf(t->name, sizeof(t->name), "%s", in->name);
 			if (in->title[0])
 				snprintf(t->title, sizeof(t->title), "%s", in->title);
+			w.full |= line_shown();
+		}
+		break;
+	case MSG_CWD: {
+		char host[256] = "", dir[PATH_MAX];
+		w.msg[n] = 0;
+		gethostname(host, sizeof(host) - 1);
+		if (link_cwd(w.msg, host, dir, sizeof(dir)) == 0)
+			memcpy(t->cwd, dir, strlen(dir) + 1);
+		break;
+	}
+	case MSG_BELL:
+	case MSG_NOTIFY:
+		if (!shown) {
+			t->marked = 1;
 			w.full |= line_shown();
 		}
 		break;

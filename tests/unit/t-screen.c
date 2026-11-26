@@ -230,7 +230,7 @@ static void test_modes(void) {
 static void test_replies(void) {
 	start(10, 4);
 	feed("\x1b[c");
-	CHECK(replied(DA1_REPLY), "DA1 answers as xterm");
+	CHECK(replied(DA1_REPLY), "DA1 answers as foot (DR-211)");
 	feed("\x1b[>c");
 	CHECK(replied(DA2_REPLY), "DA2 answers as xterm");
 	feed("\x1b[>q");

@@ -24,6 +24,7 @@
 
 #define HISTORY_BYTES (32u << 20)
 #define INPUT_MAX (16u << 20)
+#define DRAIN_MS 200
 #define SYNC_MAX_MS 150
 #define TERMS_MAX 999
 #define FIRST_MSG_MS 500
@@ -610,12 +611,15 @@ int main(int argc, char **argv) {
 		notify();
 	}
 
-	fcntl(t.master, F_SETFL, O_NONBLOCK);
-	for (;;) {
-		ssize_t n = read(t.master, t.buf, sizeof(t.buf));
-		if (n <= 0)
+	while (pty_open) {
+		struct pollfd p = {t.master, POLLIN, 0};
+		if (poll(&p, 1, DRAIN_MS) <= 0)
 			break;
-		feed((const uint8_t *)t.buf, (size_t)n);
+		ssize_t n = read(t.master, t.buf, sizeof(t.buf));
+		if (n > 0)
+			feed((const uint8_t *)t.buf, (size_t)n);
+		else if (n == 0 || (errno != EAGAIN && errno != EINTR))
+			break;
 	}
 	t.changed = 1;
 	t.waiting = 0;

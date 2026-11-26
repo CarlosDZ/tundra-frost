@@ -386,6 +386,22 @@ check "$?:$(state_of solo)" "0:detached" \
 	"detaching the last tab closes the window and keeps its terminal"
 close_detached
 
+mkdir -p "$WORK/aqui"
+printf '#!/bin/sh\npwd >"%s/cwd"\nexec sleep 5\n' "$WORK" >"$WORK/where"
+chmod +x "$WORK/where"
+SHELL=$WORK/where $frost --app-id cwd sh -c \
+	'cd "$0" && printf "\033]7;file://localhost%s\007" "$PWD"; sleep 5' \
+	"$WORK/aqui" &
+cwdw=$!
+wait_window cwd
+sleep 0.3
+line_order "new"
+sleep 0.5
+check "$(cat "$WORK/cwd" 2>/dev/null)" "$WORK/aqui" \
+	"a new tab opens in the directory of the tab shown, as OSC 7 said"
+chord 125 14
+wait_end $cwdw
+
 FROST_TEST_DUMP=$WORK/back.png $frost --app-id back sh -c \
 	'echo B; for i in $(seq 100); do echo A; done; sleep 1.5' &
 win=$!

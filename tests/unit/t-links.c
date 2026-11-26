@@ -68,6 +68,22 @@ int main(void) {
 	CHECK(!link_allowed("javascript:alert(1)") && !link_allowed("ssh://h") &&
 	          !link_allowed("data:text/html,x"),
 	      "other schemes are not");
+	char dir[256];
+	CHECK(link_cwd("file://tundra/home/u/src", "tundra", dir, sizeof(dir)) ==
+	              0 &&
+	          !strcmp(dir, "/home/u/src"),
+	      "OSC 7 of this host gives its directory");
+	CHECK(link_cwd("file:///tmp", "tundra", dir, sizeof(dir)) == 0 &&
+	          link_cwd("file://localhost/tmp", "tundra", dir, sizeof(dir)) == 0,
+	      "and so do no host and localhost");
+	CHECK(link_cwd("file://tundra/a%20b/%C3%B1", "tundra", dir, sizeof(dir)) ==
+	              0 &&
+	          !strcmp(dir, "/a b/ñ"),
+	      "with what %XX says");
+	CHECK(link_cwd("file://otra/tmp", "tundra", dir, sizeof(dir)) < 0 &&
+	          link_cwd("http://tundra/tmp", "tundra", dir, sizeof(dir)) < 0 &&
+	          link_cwd("file://tundra/a%00b", "tundra", dir, sizeof(dir)) < 0,
+	      "not from another host, nor another scheme, nor a NUL");
 	scr_free(&s);
 	return test_summary();
 }
