@@ -230,6 +230,22 @@ check "$("$picture" pixel "$WORK/theme.png" 0 0)" "ff203040" \
 	"a new theme repaints the window"
 theme 101418
 
+frames() {
+	awk '/^frames, count / { n = $NF } END { print n + 0 }' "$WORK/log.idle"
+}
+FROST_TEST_LOG=$WORK/log.idle $frost --app-id idle sh -c \
+	"printf 'A\\033[?25l'; sleep 3" &
+win=$!
+wait_window idle
+sleep 1
+before=$(frames)
+sleep 1
+drew=no
+[ "$before" -gt 0 ] && drew=yes
+check "$drew:$(($(frames) - before))" "yes:0" \
+	"a window with nothing new to show draws no frames"
+wait_end $win
+
 reader keys "" "head -c 11"
 chord 29 42 46
 chord 30

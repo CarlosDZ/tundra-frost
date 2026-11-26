@@ -446,7 +446,7 @@ static void draw(void) {
 	if (w.frame || !w.npanes || view_of(&T, &v) < 0)
 		return;
 	int idx[PANES_MAX], n = group_panes(group_index(T.group), idx);
-	int any = w.full || w.tick || w.buf[0].full || w.buf[1].full;
+	int any = w.full || w.tick;
 	for (int k = 0; k < n && !any; k++)
 		any = w.panes[idx[k]].damage;
 	if (!any)
@@ -486,6 +486,10 @@ static void draw(void) {
 	w.frame = wl_surface_frame(w.surf);
 	wl_callback_add_listener(w.frame, &frame_listener, NULL);
 	wl_surface_commit(w.surf);
+#ifdef FROST_TEST
+	static long frames;
+	test_log("frames, count", ++frames);
+#endif
 }
 
 static void frame_done(void *data, struct wl_callback *cb, uint32_t time) {
