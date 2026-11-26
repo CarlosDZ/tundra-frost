@@ -58,8 +58,12 @@ check "$($client $term 20 3 -w 300 -b 50 -- sh -c 'seq 1 10; sleep 0.5' | head -
 	"it stops at the first line"
 
 lines=$(awk 'BEGIN { for (i = 0; i < 1000; i++) printf "%099d\\n", 0 }')
-check "$($client $term 20 3 -i "$lines" -- sh -c 'sleep 0.5; head -c 100000 | wc -c' | grep -c '^|100000$')" \
-	"1" "100 KB typed into a program that reads late all reach it"
+got=$(mktemp)
+$client $term 20 3 -i "$lines" -- sh -c \
+	"sleep 0.5; head -c 100000 | wc -c >$got" >/dev/null
+check "$(cat "$got")" "100000" \
+	"100 KB typed into a program that reads late all reach it"
+rm -f "$got"
 
 start=$(date +%s%N)
 last=$($client $term 20 3 -s 200 -- seq 1 100000 | grep -c '^|100000$')
