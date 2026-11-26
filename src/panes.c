@@ -25,6 +25,29 @@ static const char *term_path(void) {
 	return TUNDRA_FROST_TERM;
 }
 
+static const char *bin_path(void) {
+#ifdef FROST_TEST
+	static char abs[PATH_MAX];
+	const char *p = getenv("FROST_TEST_BIN");
+	if (p && *p)
+		return realpath(p, abs) ? abs : p;
+#endif
+	return TUNDRA_FROST_BIN;
+}
+
+static void tmux_env(const struct pane *t) {
+	char v[PATH_MAX + 64];
+	snprintf(v, sizeof(v), "%s,%d,0", w.ctl_path, (int)getppid());
+	setenv("TMUX", v, 1);
+	snprintf(v, sizeof(v), "%%%u", t->id);
+	setenv("TMUX_PANE", v, 1);
+	setenv("TERM_PROGRAM", "tmux", 1);
+	setenv("TERM_PROGRAM_VERSION", TMUX_VERSION, 1);
+	const char *old = getenv("PATH");
+	snprintf(v, sizeof(v), "%s:%s", bin_path(), old ? old : "/usr/bin:/bin");
+	setenv("PATH", v, 1);
+}
+
 int term_rows(void) {
 	return w.ngroups >= 2 && w.rows > 1 ? w.rows - 1 : w.rows;
 }
@@ -161,6 +184,8 @@ static int spawn(struct pane *t, char **argv, const char *cwd) {
 			_exit(127);
 		if (cwd && *cwd && chdir(cwd) < 0)
 			perror("chdir error");
+		if (w.ctl >= 0)
+			tmux_env(t);
 		char cols[16], rows[16];
 		snprintf(cols, sizeof(cols), "%d", t->box.cols > 0 ? t->box.cols : 80);
 		snprintf(rows, sizeof(rows), "%d", t->box.rows > 0 ? t->box.rows : 24);
@@ -183,11 +208,10 @@ static int spawn(struct pane *t, char **argv, const char *cwd) {
 	return 0;
 }
 
-int pane_new(unsigned group, int after, char **argv, const char *cwd,
-             int focus) {
+int pane_new(unsigned group, int at, char **argv, const char *cwd, int focus) {
 	if (w.npanes == PANES_MAX)
 		return -1;
-	int i = after < 0 || after >= w.npanes ? w.npanes : after + 1;
+	int i = at < 0 || at > w.npanes ? w.npanes : at;
 	memmove(&w.panes[i + 1], &w.panes[i],
 	        (size_t)(w.npanes - i) * sizeof(w.panes[0]));
 	if (w.npanes && w.cur >= i)

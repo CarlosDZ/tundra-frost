@@ -5,7 +5,8 @@ VERSION = $(shell grep '^version=' metapkg | cut -d= -f2)
 
 TUNDRA_STD  = -std=c11
 TUNDRA_DEFS = -D_GNU_SOURCE -DTUNDRA_FROST_VERSION=\"$(VERSION)\" \
-              -DTUNDRA_FROST_TERM=\"$(PREFIX)/libexec/frost-term\"
+              -DTUNDRA_FROST_TERM=\"$(PREFIX)/libexec/frost-term\" \
+              -DTUNDRA_FROST_BIN=\"$(PREFIX)/libexec/frost/bin\"
 TUNDRA_INC  = -Isrc -I$(PROTO)
 TUNDRA_TERM_LIBS = -lseccomp
 TUNDRA_WL_PKGS = wayland-client wayland-cursor xkbcommon
@@ -27,6 +28,7 @@ CFLAGS ?= -Wall -Wextra -O2
 
 TARGET = frost
 TERM_PROG = frost-term
+TMUX_PROG = $(BUILD)/bin/tmux
 
 BUILD = build
 SRCS = $(wildcard src/*.c)
@@ -36,7 +38,7 @@ DEPS = $(OBJS:.o=.d)
 
 WIN_SRCS  = src/main.c src/win.c src/render.c src/keys.c src/kbd.c \
             src/mouse.c src/paste.c src/select.c src/links.c src/line.c \
-            src/panes.c src/mosaic.c
+            src/panes.c src/mosaic.c src/tmuxcmd.c src/tmuxsrv.c
 TERM_SRCS = src/term.c src/sandbox.c
 
 PROTO = $(BUILD)/protocols
@@ -48,13 +50,18 @@ PROTO_HDRS = $(PROTO_NAMES:%=$(PROTO)/%-client-protocol.h)
 PROTO_SRCS = $(PROTO_NAMES:%=$(PROTO)/%-protocol.c)
 PROTO_OBJS = $(PROTO_SRCS:.c=.o)
 
-all: $(TARGET) $(TERM_PROG)
+all: $(TARGET) $(TERM_PROG) $(TMUX_PROG)
 
 $(TARGET): $(filter-out $(TERM_SRCS:src/%.c=$(BUILD)/%.o),$(OBJS)) $(PROTO_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(TUNDRA_LIBS)
 
 $(TERM_PROG): $(filter-out $(WIN_SRCS:src/%.c=$(BUILD)/%.o),$(OBJS))
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(TUNDRA_TERM_LIBS)
+
+$(TMUX_PROG): src/tmux/tmux.c src/proto.c src/proto.h Makefile
+	@mkdir -p $(dir $@)
+	$(CC) $(TUNDRA_STD) $(CPPFLAGS) $(CFLAGS) -Isrc $(TUNDRA_DEFS) $(LDFLAGS) \
+		-o $@ src/tmux/tmux.c src/proto.c
 
 $(BUILD)/%.o: src/%.c | $(PROTO_HDRS)
 	@mkdir -p $(dir $@)
@@ -142,7 +149,8 @@ $(BENCH_WIN): $(TEST_WIN_SRCS) $(HDRS) $(PROTO_SRCS) | $(PROTO_HDRS)
 bench: $(BENCH_WIN) $(TERM_PROG) $(TEST_TOOLS)
 	@$(TEST_ENV) BOREALIS_DEV=$(abspath $(BOREALIS_DEV)) sh tests/sys/bench-window.sh
 
-check: check-unit $(TARGET) $(TERM_PROG) $(TEST_TERM) $(TEST_WIN) $(TEST_TOOLS)
+check: check-unit $(TARGET) $(TERM_PROG) $(TMUX_PROG) $(TEST_TERM) $(TEST_WIN) \
+		$(TEST_TOOLS)
 	@$(TEST_ENV) BOREALIS_DEV=$(abspath $(BOREALIS_DEV)) sh tests/sys/run.sh
 
 .PHONY: all install uninstall clean check check-unit tools bench
@@ -150,12 +158,14 @@ check: check-unit $(TARGET) $(TERM_PROG) $(TEST_TERM) $(TEST_WIN) $(TEST_TOOLS)
 PREFIX ?= /usr
 DESTDIR ?=
 
-install: $(TARGET) $(TERM_PROG)
+install: $(TARGET) $(TERM_PROG) $(TMUX_PROG)
 	install -Dm755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(TARGET)
 	install -Dm755 $(TERM_PROG) $(DESTDIR)$(PREFIX)/libexec/$(TERM_PROG)
+	install -Dm755 $(TMUX_PROG) $(DESTDIR)$(PREFIX)/libexec/frost/bin/tmux
 	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/tundra-frost/LICENSE
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
 	rm -f $(DESTDIR)$(PREFIX)/libexec/$(TERM_PROG)
+	rm -rf $(DESTDIR)$(PREFIX)/libexec/frost
 	rm -rf $(DESTDIR)$(PREFIX)/share/licenses/tundra-frost

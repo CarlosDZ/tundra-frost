@@ -42,7 +42,7 @@ struct group {
 struct buffer {
 	struct wl_buffer *wl;
 	struct tdraw_canvas *cv;
-	int busy;
+	int busy, full;
 };
 
 struct win {
@@ -99,6 +99,9 @@ struct win {
 	int told_cw, told_ch;
 	int full;
 
+	int ctl;
+	char ctl_path[108];
+
 	int line_open, line_error;
 	char line_input[LINE_INPUT_MAX], line_msg[256];
 
@@ -130,8 +133,7 @@ int pane_index(unsigned id);
 int group_panes(int gi, int *out);
 int group_focus(int gi);
 unsigned group_new(void);
-int pane_new(unsigned group, int after, char **argv, const char *cwd,
-             int focus);
+int pane_new(unsigned group, int at, char **argv, const char *cwd, int focus);
 void pane_drop(int i, int status);
 void pane_focus(int i);
 void relayout(void);
@@ -140,5 +142,9 @@ int term_rows(void);
 void list_terminals(void);
 int detach_pane(const char *name);
 int attach_pane(const char *arg, int number);
+
+int tmux_listen(void);
+void tmux_accept(void);
+void tmux_close(void);
 
 #endif

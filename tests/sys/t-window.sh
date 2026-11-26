@@ -432,4 +432,71 @@ check "$(echo "$listed" | awk '{ print $3 }')" "detached" \
 n=$(echo "$listed" | awk '{ print $1 }')
 [ -n "$n" ] && $client attach "$WORK/frost/$n" 20 3 -c >/dev/null
 
+tmux=build/bin/tmux
+export FROST_TEST_BIN=build/bin
+on_tmux() {
+	TMUX="$WORK/frost/tmux-$mosaic,$mosaic,0" TMUX_PANE=%0 $tmux "$@"
+}
+logged() {
+	awk -v k="$1" '$0 ~ "^" k ", cells " { n = $NF } END { print n }' \
+		"$WORK/log.mosaic"
+}
+FROST_TEST_LOG=$WORK/log.mosaic $frost --app-id mosaic sh -c \
+	"printf '%s %s' \"\$TMUX_PANE\" \"\$(command -v tmux)\" >$WORK/inside
+	stty raw -echo; : >$WORK/left.ready; head -c 1 >$WORK/left; sleep 30" &
+mosaic=$!
+wait_window mosaic && wait_file "$WORK/left.ready"
+sleep 0.3
+check "$(cat "$WORK/inside")" "%0 $(realpath build/bin)/tmux" \
+	"a program in frost has its TMUX_PANE, and the tmux of frost first in PATH"
+check "$($tmux -V)" "tmux 3.4" "the tmux of frost says the version it answers as"
+check "$(on_tmux display-message -p '#{pane_id} #{window_id} #{session_name}')" \
+	"%0 @0 frost" "display-message answers with the pane, its tab and the session"
+check "$(on_tmux split-window -t %0 -h -l 70% -P -F '#{pane_id}' -- \
+	"stty raw -echo; : >$WORK/right.ready; head -c 1 >$WORK/right; sleep 30")" \
+	"%1" "split-window opens a pane beside it and says its id"
+wait_file "$WORK/right.ready"
+sleep 0.3
+ww=$(on_tmux display-message -p '#{window_width}')
+wh=$(on_tmux display-message -p '#{window_height}')
+w0=$(((ww * 30 + 50) / 100))
+check "$(on_tmux list-panes -F '#{pane_left} #{pane_width}' | tr '\n' ' ')" \
+	"0 $w0 $((w0 + 1)) $((ww - w0 - 1)) " \
+	"the new pane takes 70% of the width, past a separator"
+check "$(logged borders)" "$wh" "the separator is a line down the window"
+chord 48
+sleep 0.3
+check "$(cat "$WORK/right")" "b" "the new pane takes the keyboard"
+point mosaic 2 2
+click
+sleep 0.3
+chord 30
+sleep 0.3
+check "$(cat "$WORK/left"):$(on_tmux list-panes -F '#{pane_active}' | tr -d '\n')" \
+	"a:10" "a click on the other pane gives it the keyboard, and goes no further"
+on_tmux split-window -d -t %1 -v -- "sleep 30"
+sleep 0.5
+check "$(logged borders):$(logged 'borders lit')" \
+	"$((wh + ww - w0 - 1)):$wh" \
+	"a third pane under the second: a row between them, lit beside the focus"
+on_tmux select-pane -t %1
+sleep 0.3
+h1=$(on_tmux display-message -p -t %1 '#{pane_height}')
+check "$(on_tmux list-panes -F '#{pane_active}' | tr -d '\n'):$(logged 'borders lit')" \
+	"010:$((h1 + ww - w0 - 1))" "select-pane moves the focus and the lit separators"
+on_tmux resize-pane -t %0 -x 20%
+check "$(on_tmux display-message -p -t %0 '#{pane_width}')" \
+	"$(((ww * 20 + 50) / 100))" "resize-pane sets the width of the main pane"
+on_tmux kill-pane -t %2
+check "$?:$(on_tmux list-panes -F '#{pane_id}' | tr '\n' ' ')" "0:%0 %1 " \
+	"kill-pane closes a pane"
+on_tmux kill-pane -t %9 2>/dev/null
+check "$?" 1 "a pane that is not there is an error"
+check "$(on_tmux new-window 2>&1; echo "$?")" \
+	"frost: tmux new-window is not supported
+1" "an order frost does not do fails, and says so"
+chord 125 14
+wait_end $mosaic
+check "$?" 0 "closing the window closes every pane"
+
 finish

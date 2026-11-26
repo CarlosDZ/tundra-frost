@@ -28,6 +28,9 @@ enum msg_type {
 	MSG_INFO,
 	MSG_BUSY,
 	MSG_LINK,
+
+	MSG_TMUX = 64,
+	MSG_TMUX_DONE,
 };
 
 #define TERM_NAME_MAX 32
@@ -42,6 +45,13 @@ struct msg_info {
 
 struct msg_resize {
 	uint16_t cols, rows, cell_w, cell_h;
+};
+
+#define TMUX_VERSION "3.4"
+
+struct msg_tmux_done {
+	int32_t code;
+	uint32_t out_len;
 };
 
 #define MSG_MAX (1 << 17)

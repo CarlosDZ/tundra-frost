@@ -303,6 +303,60 @@ static void paint_line(struct buffer *b) {
 	                         w.r.ch);
 }
 
+static void paint_cells(struct buffer *b, int x, int y, const struct cell *c,
+                        int n) {
+	uint16_t map = 0;
+	struct view v = {n, 1, c,    &map, 0,    0, 0, 0, CURSOR_BAR,
+	                 0, 0, NULL, NULL, NULL, 0, 0, 0, 0};
+	int ox = w.r.ox, oy = w.r.oy;
+	w.r.ox += x * w.r.cw, w.r.oy += y * w.r.ch;
+	render_row(&w.r, b->cv, &v, 0);
+	w.r.ox = ox, w.r.oy = oy;
+}
+
+static void paint_borders(struct buffer *b, const int *idx, int n) {
+	int rows = term_rows();
+	size_t cells = (size_t)w.cols * (size_t)rows;
+	uint32_t *cp = malloc(cells * sizeof(*cp));
+	uint8_t *lit = malloc(cells);
+	struct cell *row = calloc((size_t)w.cols, sizeof(*row));
+	struct box boxes[PANES_MAX];
+	int focus = -1;
+	for (int k = 0; k < n; k++) {
+		boxes[k] = w.panes[idx[k]].box;
+		if (idx[k] == w.cur)
+			focus = k;
+	}
+	if (cp && lit && row) {
+		mosaic_borders(w.cols, rows, n, boxes, focus, cp, lit);
+#ifdef FROST_TEST
+		long all = 0, on = 0;
+		for (size_t i = 0; i < cells; i++)
+			all += cp[i] != 0, on += lit[i];
+		test_log("borders, cells", all);
+		test_log("borders lit, cells", on);
+#endif
+		uint32_t dim = theme_cell("border", 0x3e494f);
+		uint32_t bright = theme_cell("text", 0xccd2d6);
+		for (int y = 0; y < rows; y++)
+			for (int x = 0; x < w.cols;) {
+				size_t i = (size_t)y * (size_t)w.cols + (size_t)x;
+				if (!cp[i]) {
+					x++;
+					continue;
+				}
+				int from = x;
+				for (; x < w.cols && cp[i]; x++, i++)
+					row[x] =
+					    (struct cell){.cp = cp[i], .fg = lit[i] ? bright : dim};
+				paint_cells(b, from, y, row + from, x - from);
+			}
+	}
+	free(cp);
+	free(lit);
+	free(row);
+}
+
 static void draw_pane(struct pane *t, int bi, int full) {
 	struct view v;
 	const struct box *bx = &t->box;
@@ -357,7 +411,7 @@ static void draw(void) {
 	if (w.frame || !w.npanes || view_of(&T, &v) < 0)
 		return;
 	int idx[PANES_MAX], n = group_panes(group_index(T.group), idx);
-	int any = w.full || w.tick;
+	int any = w.full || w.tick || w.buf[0].full || w.buf[1].full;
 	for (int k = 0; k < n && !any; k++)
 		any = w.panes[idx[k]].damage;
 	if (!any)
@@ -371,17 +425,22 @@ static void draw(void) {
 	int blinks = w.focused && v.cursor_visible && v.cursor_blink;
 	if (blinks != w.blinking || (blinks && T.damage && v.y != w.cur_y))
 		blink_arm(blinks);
-	int full = w.full;
-	if (full)
+	if (w.full)
+		w.buf[0].full = w.buf[1].full = 1, w.full = 0;
+	int full = b->full;
+	if (full) {
 		tdraw_fill(b->cv, 0, 0, w.bw, w.bh,
 		           render_color(&w.r, &v, COLOR_DEFAULT, 0));
+		if (n > 1)
+			paint_borders(b, idx, n);
+	}
 	for (int k = 0; k < n; k++)
 		draw_pane(&w.panes[idx[k]], b == &w.buf[1], full);
 	w.tick = 0;
 	if (line_shown())
 		paint_line(b);
 	if (full) {
-		w.full = 0;
+		b->full = 0;
 		wl_surface_damage_buffer(w.surf, 0, 0, w.bw, w.bh);
 	}
 	wl_surface_attach(w.surf, b->wl, 0, 0);
@@ -1359,7 +1418,7 @@ static void loop(const struct cli *c) {
 		}
 		struct pollfd p[6 + PANES_MAX] = {
 		    {wl_display_get_fd(w.dpy), POLLIN, 0},
-		    {-1, POLLIN, 0},
+		    {w.ctl, POLLIN, 0},
 		    {w.theme ? tdraw_theme_fd(w.theme) : -1, POLLIN, 0},
 		    {w.blink, POLLIN, 0},
 		    {w.rep, POLLIN, 0},
@@ -1415,6 +1474,8 @@ static void loop(const struct cli *c) {
 			    w.rep_key)
 				on_key(w.rep_key, KEY_REPEAT);
 		}
+		if ((p[1].revents & POLLIN) && !w.ended)
+			tmux_accept();
 		draw();
 	}
 }
@@ -1422,7 +1483,7 @@ static void loop(const struct cli *c) {
 int win_run(const struct cli *c) {
 	for (int i = 0; i < PANES_MAX; i++)
 		w.panes[i].sock = -1;
-	w.paste_fd = -1;
+	w.paste_fd = w.ctl = -1;
 	w.status = 1;
 	signal(SIGPIPE, SIG_IGN);
 	if (render_init(&w.r, FONT_SIZE) < 0)
@@ -1438,8 +1499,11 @@ int win_run(const struct cli *c) {
 		perror("timerfd error");
 	if (kbd_init(&w.kbd, NULL) < 0)
 		fprintf(stderr, "frost: no xkb context\n");
-	if (open_window(c) == 0)
+	if (open_window(c) == 0) {
+		tmux_listen();
 		loop(c);
+	}
+	tmux_close();
 #ifdef FROST_TEST
 	dump();
 #endif

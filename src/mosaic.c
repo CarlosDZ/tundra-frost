@@ -81,3 +81,39 @@ void mosaic_layout(int cols, int rows, int n, enum layout layout, int main,
 		break;
 	}
 }
+
+static int inside(const struct box *b, int x, int y) {
+	int top = b->title_y >= 0 ? b->title_y : b->y;
+	return x >= b->x && x < b->x + b->cols && y >= top && y < b->y + b->rows;
+}
+
+void mosaic_borders(int cols, int rows, int n, const struct box *b, int focus,
+                    uint32_t *cp, uint8_t *lit) {
+	static const uint32_t joint[16] = {
+	    0x2502, 0x2502, 0x2502, 0x2502, 0x2500, 0x2518, 0x2510, 0x2524,
+	    0x2500, 0x2514, 0x250C, 0x251C, 0x2500, 0x2534, 0x252C, 0x253C};
+	for (int y = 0; y < rows; y++)
+		for (int x = 0; x < cols; x++) {
+			int gap = 1;
+			for (int k = 0; k < n && gap; k++)
+				gap = !inside(&b[k], x, y);
+			cp[y * cols + x] = (uint32_t)gap;
+		}
+	for (int y = 0; y < rows; y++)
+		for (int x = 0; x < cols; x++) {
+			size_t i = (size_t)y * (size_t)cols + (size_t)x;
+			lit[i] = 0;
+			if (!cp[i])
+				continue;
+			int m = (y > 0 && cp[i - (size_t)cols]) |
+			        (y + 1 < rows && cp[i + (size_t)cols]) << 1 |
+			        (x > 0 && cp[i - 1]) << 2 |
+			        (x + 1 < cols && cp[i + 1]) << 3;
+			cp[i] = joint[m];
+			if (focus >= 0 && focus < n)
+				lit[i] = inside(&b[focus], x - 1, y) ||
+				         inside(&b[focus], x + 1, y) ||
+				         inside(&b[focus], x, y - 1) ||
+				         inside(&b[focus], x, y + 1);
+		}
+}

@@ -49,5 +49,18 @@ int main(void) {
 	for (int i = 0; i < 4; i++)
 		ok &= b[i].cols >= 1 && b[i].rows >= 1;
 	CHECK(ok, "too small a window still gives each pane a cell");
+
+	uint32_t cp[10 * 5];
+	uint8_t lit[10 * 5];
+	mosaic_layout(10, 5, 3, LAYOUT_MAIN_VERTICAL, 50, 0, b);
+	mosaic_borders(10, 5, 3, b, 2, cp, lit);
+	CHECK(cp[0] == 0 && cp[5] == 0x2502 && cp[2 * 10 + 5] == 0x251C &&
+	          cp[2 * 10 + 7] == 0x2500 && cp[4 * 10 + 5] == 0x2502,
+	      "the separators join: a line down, and where the stacked ones meet");
+	CHECK(!lit[5] && lit[4 * 10 + 5] && lit[2 * 10 + 7],
+	      "the ones next to the pane with the focus are lit");
+	mosaic_layout(10, 5, 4, LAYOUT_TILED, 0, 0, b);
+	mosaic_borders(10, 5, 4, b, -1, cp, lit);
+	CHECK(cp[2 * 10 + 5] == 0x253C, "four meet in a cross");
 	return test_summary();
 }
