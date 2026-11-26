@@ -331,7 +331,7 @@ wait_end $osc
 
 printf '#!/bin/sh\nprintf "%%s\\n" "$1" >>"%s/opened"\n' "$WORK" >"$WORK/browser"
 chmod +x "$WORK/browser"
-BROWSER=$WORK/browser $frost --app-id links sh -c \
+BROWSER=$WORK/browser FROST_TEST_LOG=$WORK/log.links $frost --app-id links sh -c \
 	'printf "\033]8;;https://tundra.example/o\007enlace\033]8;;\007 y https://tundra.example/b.\n"; sleep 3' &
 links=$!
 wait_window links
@@ -339,6 +339,7 @@ sleep 0.3
 for cell in 2 14; do
 	point links $cell 0
 	"$ask" key 29 down >/dev/null
+	sleep 0.2
 	click
 	"$ask" key 29 up >/dev/null
 done
@@ -346,6 +347,8 @@ sleep 0.5
 check "$(cat "$WORK/opened" 2>/dev/null)" "https://tundra.example/o
 https://tundra.example/b" \
 	"Ctrl + click opens an OSC 8 link and an address written in the line"
+check "$(grep -c '^line shows a link, bytes 24$' "$WORK/log.links")" "2" \
+	"before, the line shows the real address of each"
 wait_end $links
 
 reader tabs "" "head -c 1"

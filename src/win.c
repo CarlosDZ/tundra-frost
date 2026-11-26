@@ -96,7 +96,7 @@ static struct win {
 	size_t clip_len, paste_len, paste_cap;
 	int paste_fd;
 
-	int link_kind, link_from, link_to, link_id, link_click;
+	int link_kind, link_from, link_to, link_id, link_click, link_waiting;
 	char link_url[LINK_MAX];
 
 	int next_w, next_h, next_focus, configured, focused;
@@ -126,6 +126,19 @@ static struct win {
 } w;
 
 #define T (w.tabs[w.cur])
+
+#ifdef FROST_TEST
+static void test_log(const char *what, long n) {
+	const char *path = getenv("FROST_TEST_LOG");
+	FILE *f = path ? fopen(path, "a") : NULL;
+	if (f) {
+		fprintf(f, "%s %ld\n", what, n);
+		fclose(f);
+	}
+}
+#else
+#define test_log(what, n) ((void)0)
+#endif
 
 static void update_hover(void);
 
@@ -346,8 +359,16 @@ static void paint_line(struct buffer *b) {
 	if (!row)
 		return;
 	int cx;
+	int link = !w.line_open && w.link_kind && w.link_url[0];
+#ifdef FROST_TEST
+	static char logged[LINK_MAX];
+	if (link && strcmp(logged, w.link_url)) {
+		test_log("line shows a link, bytes", (long)strlen(w.link_url));
+		memcpy(logged, w.link_url, sizeof(logged));
+	}
+#endif
 	line_cells(row, w.cols, tabs, w.ntabs, w.line_open, w.line_input,
-	           w.line_msg, w.line_error, &lc, &cx);
+	           link ? w.link_url : w.line_msg, !link && w.line_error, &lc, &cx);
 	uint16_t map = 0;
 	struct view lv = {w.cols, 1,    row,     &map,       cx < 0 ? 0 : cx,
 	                  0,      0,    cx >= 0, CURSOR_BAR, 0,
@@ -456,19 +477,6 @@ static void scroll_history(int32_t rows) {
 	if (T.sock >= 0)
 		msg_send(T.sock, MSG_SCROLL, &rows, sizeof(rows), -1);
 }
-
-#ifdef FROST_TEST
-static void test_log(const char *what, long n) {
-	const char *path = getenv("FROST_TEST_LOG");
-	FILE *f = path ? fopen(path, "a") : NULL;
-	if (f) {
-		fprintf(f, "%s %ld\n", what, n);
-		fclose(f);
-	}
-}
-#else
-#define test_log(what, n) ((void)0)
-#endif
 
 static void source_target(void *data, struct wl_data_source *src,
                           const char *mime) {
@@ -878,8 +886,15 @@ static void update_hover(void) {
 	if (kind != w.link_kind || from != w.link_from || to != w.link_to) {
 		w.link_kind = kind, w.link_from = from, w.link_to = to;
 		w.link_id = id;
+		w.link_waiting = 0;
 		w.full = 1;
 		set_cursor();
+		if (kind != LINK_BARE)
+			w.link_url[0] = 0;
+		if (kind == LINK_OSC8) {
+			uint16_t n = (uint16_t)id;
+			msg_send(T.sock, MSG_LINK_ASK, &n, sizeof(n), -1);
+		}
 	}
 }
 
@@ -907,12 +922,10 @@ static void open_url(const char *url) {
 }
 
 static void open_link(void) {
-	if (w.link_kind == LINK_BARE) {
+	if (w.link_url[0])
 		open_url(w.link_url);
-	} else if (w.link_kind == LINK_OSC8 && T.sock >= 0) {
-		uint16_t id = (uint16_t)w.link_id;
-		msg_send(T.sock, MSG_LINK_ASK, &id, sizeof(id), -1);
-	}
+	else if (w.link_kind == LINK_OSC8)
+		w.link_waiting = 1;
 }
 
 static void select_press(uint32_t time) {
@@ -1144,7 +1157,9 @@ static int term_rows(void) {
 	return w.ntabs >= 2 && w.rows > 1 ? w.rows - 1 : w.rows;
 }
 
-static int line_shown(void) { return w.ntabs >= 2 || w.line_open; }
+static int line_shown(void) {
+	return w.ntabs >= 2 || w.line_open || (w.link_kind && w.link_url[0]);
+}
 
 static int spawn_term(char **cmd, const char *cwd) {
 	if (w.ntabs == TABS_MAX)
@@ -1518,7 +1533,13 @@ static void from_term(int i) {
 	}
 	case MSG_LINK:
 		w.msg[n] = 0;
-		open_url(w.msg);
+		if (shown && w.link_kind == LINK_OSC8) {
+			cut_copy(w.link_url, sizeof(w.link_url), w.msg);
+			w.full = 1;
+			if (w.link_waiting)
+				open_url(w.link_url);
+			w.link_waiting = 0;
+		}
 		break;
 	case MSG_INFO:
 		if ((size_t)n == sizeof(struct msg_info)) {
