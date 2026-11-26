@@ -25,6 +25,7 @@
 #define HISTORY_BYTES (32u << 20)
 #define INPUT_MAX (16u << 20)
 #define DRAIN_MS 200
+#define CLOSE_WAIT_MS 1000
 #define SYNC_MAX_MS 150
 #define TERMS_MAX 999
 #define FIRST_MSG_MS 500
@@ -628,5 +629,16 @@ int main(int argc, char **argv) {
 	to_window(MSG_EXIT, &st, sizeof(st));
 	if (t.lsock >= 0 && t.dirfd >= 0)
 		unlinkat(t.dirfd, t.leaf, 0);
+	for (long long end = now_ms() + CLOSE_WAIT_MS; t.win >= 0;) {
+		struct pollfd p = {t.win, POLLIN, 0};
+		long long left = end - now_ms();
+		uint32_t type;
+		int fd;
+		if (left <= 0 || poll(&p, 1, (int)left) <= 0 ||
+		    msg_recv(t.win, &type, t.buf, sizeof(t.buf), &fd) < 0 || !type)
+			break;
+		if (fd >= 0)
+			close(fd);
+	}
 	return 0;
 }

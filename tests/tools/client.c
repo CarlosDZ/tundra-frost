@@ -262,6 +262,7 @@ int main(int argc, char **argv) {
 	}
 	close(sv[1]);
 	session(sv[0], &o, 0);
+	close(sv[0]);
 	if (!o.detach)
 		waitpid(pid, NULL, 0);
 	return 0;
