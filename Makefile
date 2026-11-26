@@ -46,7 +46,8 @@ PROTO = $(BUILD)/protocols
 WL_PROTOCOLS = $(shell $(PKG_CONFIG) --variable=pkgdatadir wayland-protocols)
 XDG_SHELL_XML = $(WL_PROTOCOLS)/stable/xdg-shell/xdg-shell.xml
 XDG_DECO_XML = $(WL_PROTOCOLS)/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml
-PROTO_NAMES = xdg-shell xdg-decoration-unstable-v1
+PRIMARY_XML = $(WL_PROTOCOLS)/unstable/primary-selection/primary-selection-unstable-v1.xml
+PROTO_NAMES = xdg-shell xdg-decoration-unstable-v1 primary-selection-unstable-v1
 PROTO_HDRS = $(PROTO_NAMES:%=$(PROTO)/%-client-protocol.h)
 PROTO_SRCS = $(PROTO_NAMES:%=$(PROTO)/%-protocol.c)
 PROTO_OBJS = $(PROTO_SRCS:.c=.o)
@@ -85,6 +86,14 @@ $(PROTO)/xdg-shell-protocol.c: $(XDG_SHELL_XML)
 $(PROTO)/xdg-decoration-unstable-v1-client-protocol.h: $(XDG_DECO_XML)
 	@mkdir -p $(PROTO)
 	$(WAYLAND_SCANNER) client-header $< $@
+
+$(PROTO)/primary-selection-unstable-v1-client-protocol.h: $(PRIMARY_XML)
+	@mkdir -p $(PROTO)
+	$(WAYLAND_SCANNER) client-header $< $@
+
+$(PROTO)/primary-selection-unstable-v1-protocol.c: $(PRIMARY_XML)
+	@mkdir -p $(PROTO)
+	$(WAYLAND_SCANNER) private-code $< $@
 
 $(PROTO)/xdg-decoration-unstable-v1-protocol.c: $(XDG_DECO_XML)
 	@mkdir -p $(PROTO)

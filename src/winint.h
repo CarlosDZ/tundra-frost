@@ -13,6 +13,11 @@
 #include "proto.h"
 #include "render.h"
 
+struct zwp_primary_selection_device_manager_v1;
+struct zwp_primary_selection_device_v1;
+struct zwp_primary_selection_source_v1;
+struct zwp_primary_selection_offer_v1;
+
 #define PANES_MAX 32
 #define STYLE_MAX 64
 #define FORMAT_MAX 128
@@ -90,6 +95,12 @@ struct win {
 	struct wl_data_offer *offer;
 	char *clip, *paste;
 	size_t clip_len, paste_len, paste_cap;
+	struct zwp_primary_selection_device_manager_v1 *psm;
+	struct zwp_primary_selection_device_v1 *pdev;
+	struct zwp_primary_selection_source_v1 *psrc;
+	struct zwp_primary_selection_offer_v1 *poffer;
+	char *pclip;
+	size_t pclip_len;
 	int paste_fd;
 
 	int link_kind, link_from, link_to, link_id, link_click, link_waiting;

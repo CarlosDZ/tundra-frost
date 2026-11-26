@@ -26,6 +26,7 @@
 #include "links.h"
 #include "mouse.h"
 #include "paste.h"
+#include "primary-selection-unstable-v1-client-protocol.h"
 #include "proto.h"
 #include "render.h"
 #include "select.h"
@@ -72,6 +73,11 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
 	else if (strcmp(iface, wl_seat_interface.name) == 0 && !w.seat)
 		w.seat = wl_registry_bind(reg, name, &wl_seat_interface,
 		                          version < 8 ? version : 8);
+	else if (strcmp(iface,
+	                zwp_primary_selection_device_manager_v1_interface.name) ==
+	         0)
+		w.psm = wl_registry_bind(
+		    reg, name, &zwp_primary_selection_device_manager_v1_interface, 1);
 	else if (strcmp(iface, wl_data_device_manager_interface.name) == 0)
 		w.ddm = wl_registry_bind(reg, name, &wl_data_device_manager_interface,
 		                         version < 3 ? version : 3);
@@ -579,6 +585,64 @@ void set_clipboard(char *text, size_t len) {
 	wl_data_device_set_selection(w.dd, w.source, w.serial);
 }
 
+static void psrc_send(void *data, struct zwp_primary_selection_source_v1 *src,
+                      const char *mime, int fd) {
+	(void)data, (void)mime;
+	fcntl(fd, F_SETFL, 0);
+	for (size_t done = 0; src == w.psrc && done < w.pclip_len;) {
+		ssize_t k = write(fd, w.pclip + done, w.pclip_len - done);
+		if (k < 0 && errno == EINTR)
+			continue;
+		if (k <= 0)
+			break;
+		done += (size_t)k;
+	}
+	close(fd);
+}
+
+static void psrc_cancelled(void *data,
+                           struct zwp_primary_selection_source_v1 *src) {
+	(void)data;
+	if (src == w.psrc) {
+		w.psrc = NULL;
+		free(w.pclip);
+		w.pclip = NULL, w.pclip_len = 0;
+	}
+	zwp_primary_selection_source_v1_destroy(src);
+}
+
+static const struct zwp_primary_selection_source_v1_listener psrc_listener = {
+    .send = psrc_send,
+    .cancelled = psrc_cancelled,
+};
+
+static void set_primary(char *text, size_t len) {
+	if (!w.pdev || !text || !len) {
+		free(text);
+		return;
+	}
+	if (w.psrc)
+		zwp_primary_selection_source_v1_destroy(w.psrc);
+	free(w.pclip);
+	w.pclip = text, w.pclip_len = len;
+	test_log("primary, bytes", (long)len);
+	w.psrc = zwp_primary_selection_device_manager_v1_create_source(w.psm);
+	zwp_primary_selection_source_v1_add_listener(w.psrc, &psrc_listener, NULL);
+	zwp_primary_selection_source_v1_offer(w.psrc, "text/plain;charset=utf-8");
+	zwp_primary_selection_source_v1_offer(w.psrc, "text/plain");
+	zwp_primary_selection_source_v1_offer(w.psrc, "UTF8_STRING");
+	zwp_primary_selection_device_v1_set_selection(w.pdev, w.psrc, w.serial);
+}
+
+static void select_done(void) {
+	struct view v;
+	size_t n;
+	if (!w.sel_on || view_of(&T, &v) < 0 || v.sel_to <= v.sel_from)
+		return;
+	char *text = select_text(&v, v.sel_from, v.sel_to, &n);
+	set_primary(text, n);
+}
+
 static void copy(void) {
 	struct view v;
 	size_t n;
@@ -633,6 +697,72 @@ static void drop_offer(struct wl_data_offer *o) {
 	}
 }
 
+static void poffer_mime(void *data, struct zwp_primary_selection_offer_v1 *o,
+                        const char *mime) {
+	offer_mime(data, NULL, mime);
+	(void)o;
+}
+
+static const struct zwp_primary_selection_offer_v1_listener poffer_listener = {
+    .offer = poffer_mime,
+};
+
+static void drop_poffer(struct zwp_primary_selection_offer_v1 *o) {
+	if (o) {
+		free(zwp_primary_selection_offer_v1_get_user_data(o));
+		zwp_primary_selection_offer_v1_destroy(o);
+	}
+}
+
+static void pdev_offer(void *data, struct zwp_primary_selection_device_v1 *d,
+                       struct zwp_primary_selection_offer_v1 *o) {
+	(void)data, (void)d;
+	struct mimes *m = calloc(1, sizeof(*m));
+	if (!m) {
+		zwp_primary_selection_offer_v1_destroy(o);
+		return;
+	}
+	zwp_primary_selection_offer_v1_add_listener(o, &poffer_listener, m);
+}
+
+static void pdev_selection(void *data,
+                           struct zwp_primary_selection_device_v1 *d,
+                           struct zwp_primary_selection_offer_v1 *o) {
+	(void)data, (void)d;
+	drop_poffer(w.poffer);
+	w.poffer = o;
+}
+
+static const struct zwp_primary_selection_device_v1_listener pdev_listener = {
+    .data_offer = pdev_offer,
+    .selection = pdev_selection,
+};
+
+static const char *mime_of(const struct mimes *m) {
+	return m->utf8          ? "text/plain;charset=utf-8"
+	       : m->utf8_string ? "UTF8_STRING"
+	       : m->plain       ? "text/plain"
+	                        : NULL;
+}
+
+static void paste_primary(void) {
+	test_log("paste primary, offer", w.psrc ? 2 : w.poffer != NULL);
+	if (w.psrc) {
+		paste_text(w.pclip, w.pclip_len);
+		return;
+	}
+	if (!w.poffer || w.paste_fd >= 0)
+		return;
+	const char *mime =
+	    mime_of(zwp_primary_selection_offer_v1_get_user_data(w.poffer));
+	int fds[2];
+	if (!mime || pipe2(fds, O_CLOEXEC | O_NONBLOCK) < 0)
+		return;
+	zwp_primary_selection_offer_v1_receive(w.poffer, mime, fds[1]);
+	close(fds[1]);
+	w.paste_fd = fds[0], w.paste_len = 0;
+}
+
 static void paste(void) {
 	test_log("paste, offer", w.source ? 2 : w.offer != NULL);
 	if (w.source) {
@@ -641,11 +771,7 @@ static void paste(void) {
 	}
 	if (!w.offer || w.paste_fd >= 0)
 		return;
-	struct mimes *m = wl_data_offer_get_user_data(w.offer);
-	const char *mime = m->utf8          ? "text/plain;charset=utf-8"
-	                   : m->utf8_string ? "UTF8_STRING"
-	                   : m->plain       ? "text/plain"
-	                                    : NULL;
+	const char *mime = mime_of(wl_data_offer_get_user_data(w.offer));
 	int fds[2];
 	if (!mime || pipe2(fds, O_CLOEXEC | O_NONBLOCK) < 0)
 		return;
@@ -1084,13 +1210,18 @@ static void ptr_button(void *data, struct wl_pointer *p, uint32_t serial,
 	if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
 		w.serial = serial;
 		w.held = b;
-		if (!report(MOUSE_DOWN, b) && b == MB_LEFT)
+		int sent = report(MOUSE_DOWN, b);
+		if (!sent && b == MB_LEFT)
 			select_press(time);
+		else if (!sent && b == MB_MIDDLE)
+			paste_primary();
 	} else {
-		if (w.selecting && b == MB_LEFT)
+		if (w.selecting && b == MB_LEFT) {
 			w.selecting = 0;
-		else
+			select_done();
+		} else {
 			report(MOUSE_UP, b);
+		}
 		if (w.held == b)
 			w.held = MB_NONE;
 	}
@@ -1382,6 +1513,12 @@ static int open_window(const struct cli *c) {
 		w.dd = wl_data_device_manager_get_data_device(w.ddm, w.seat);
 		wl_data_device_add_listener(w.dd, &dd_listener, NULL);
 	}
+	if (w.seat && w.psm) {
+		w.pdev =
+		    zwp_primary_selection_device_manager_v1_get_device(w.psm, w.seat);
+		zwp_primary_selection_device_v1_add_listener(w.pdev, &pdev_listener,
+		                                             NULL);
+	}
 	w.surf = wl_compositor_create_surface(w.comp);
 	w.xs = xdg_wm_base_get_xdg_surface(w.wm, w.surf);
 	xdg_surface_add_listener(w.xs, &xs_listener, NULL);
@@ -1416,6 +1553,14 @@ static void close_window(void) {
 	drop_offer(w.offer);
 	if (w.source)
 		wl_data_source_destroy(w.source);
+	drop_poffer(w.poffer);
+	if (w.psrc)
+		zwp_primary_selection_source_v1_destroy(w.psrc);
+	if (w.pdev)
+		zwp_primary_selection_device_v1_destroy(w.pdev);
+	if (w.psm)
+		zwp_primary_selection_device_manager_v1_destroy(w.psm);
+	free(w.pclip);
 	if (w.dd)
 		wl_data_device_release(w.dd);
 	if (w.ddm)

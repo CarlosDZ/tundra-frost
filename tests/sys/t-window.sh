@@ -329,6 +329,29 @@ check "$(hex "$WORK/clipb")" "$want" \
 	"a word copied with two clicks in one window is pasted in another"
 wait_end $clipa
 
+FROST_TEST_LOG=$WORK/log.prima $frost --app-id prima sh -c \
+	'printf "hola mundo"; sleep 4' &
+prima=$!
+wait_window prima
+sleep 0.3
+export FROST_TEST_LOG=$WORK/log.primb
+reader primb "" "head -c 5"
+unset FROST_TEST_LOG
+point prima 7 0
+click
+click
+point primb
+"$ask" button down middle >/dev/null
+"$ask" button up middle >/dev/null
+wait_end $win
+if [ "$(cat "$WORK/primb")" != mundo ]; then
+	sed 's/^/# prima: /' "$WORK/log.prima" 2>/dev/null
+	sed 's/^/# primb: /' "$WORK/log.primb" 2>/dev/null
+fi
+check "$(cat "$WORK/primb")" "mundo" \
+	"a word chosen with two clicks goes in another window with the middle button"
+wait_end $prima
+
 $frost --app-id osc sh -c \
 	'sleep 1; printf "\033]52;c;%s\007" "$(printf "x\033[201~y" | base64)"; sleep 3' &
 osc=$!
