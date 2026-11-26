@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "tmuxcmd.h"
+#include "width.h"
 #include "winint.h"
 
 #define SESSION "frost"
@@ -65,7 +66,7 @@ static const char *var(void *ctx, const char *name) {
 	if (!strcmp(name, "pane_current_path"))
 		return t->cwd;
 	if (!strcmp(name, "pane_dead"))
-		return "0";
+		return t->dead ? "1" : "0";
 	if (!strcmp(name, "pane_active"))
 		return group_focus(gi) == f->pane ? "1" : "0";
 	if (!strcmp(name, "pane_left"))
@@ -234,6 +235,14 @@ static int list(struct run *r, const struct tmux_cmd *c) {
 	return 0;
 }
 
+static char **command(const struct tmux_cmd *c, char **sh) {
+	if (c->argc == 1) {
+		sh[0] = "/bin/sh", sh[1] = "-c", sh[2] = c->argv[0], sh[3] = NULL;
+		return sh;
+	}
+	return c->argc > 1 ? c->argv : NULL;
+}
+
 static int split(struct run *r, const struct tmux_cmd *c) {
 	if (tmux_value(c, 'e'))
 		return unsupported(r, c->name, 'e');
@@ -256,12 +265,7 @@ static int split(struct run *r, const struct tmux_cmd *c) {
 		g->layout = across ? LAYOUT_MAIN_VERTICAL : LAYOUT_EVEN_VERTICAL;
 		g->main = across && size >= 0 ? 100 - size : 50;
 	}
-	char *sh[] = {"/bin/sh", "-c", NULL, NULL};
-	char **argv = NULL;
-	if (c->argc == 1)
-		sh[2] = c->argv[0], argv = sh;
-	else if (c->argc > 1)
-		argv = c->argv;
+	char *sh[4], **argv = command(c, sh);
 	char cwd[PATH_MAX];
 	cut_copy(cwd, sizeof(cwd),
 	         tmux_value(c, 'c') ? tmux_value(c, 'c') : r->cwd);
@@ -304,7 +308,7 @@ static int select_pane(struct run *r, const struct tmux_cmd *c) {
 		cut_copy(w.panes[p].title, sizeof(w.panes[p].title), title);
 		if (p == w.cur)
 			show_title();
-		w.full |= line_shown();
+		w.full = 1;
 		return 0;
 	}
 	w.groups[group_index(w.panes[p].group)].focus = w.panes[p].id;
@@ -365,15 +369,336 @@ static int resize(struct run *r, const struct tmux_cmd *c) {
 	return 0;
 }
 
+static int respawn(struct run *r, const struct tmux_cmd *c) {
+	if (tmux_value(c, 'e'))
+		return unsupported(r, c->name, 'e');
+	const char *t = tmux_value(c, 't');
+	int p = find_pane(r, t);
+	if (p < 0)
+		return fail(r, "can't find pane: %s", t ? t : "");
+	if (!w.panes[p].dead && !tmux_flag(c, 'k'))
+		return fail(r, "pane %%%u still active", w.panes[p].id);
+	char *sh[4];
+	if (pane_respawn(p, command(c, sh), tmux_value(c, 'c')) < 0)
+		return fail(r, "cannot start the pane");
+	return 0;
+}
+
+enum { O_STYLE, O_ACTIVE, O_FORMAT, O_REMAIN, O_TITLES, O_IGNORED, O_FIXED };
+
+static const struct option {
+	const char *name;
+	int type;
+} options[] = {
+    {"pane-active-border-style", O_ACTIVE},
+    {"pane-border-format", O_FORMAT},
+    {"pane-border-status", O_TITLES},
+    {"pane-border-style", O_STYLE},
+    {"remain-on-exit", O_REMAIN},
+    {"window-active-style", O_IGNORED},
+    {"window-style", O_IGNORED},
+    {"default-shell", O_FIXED},
+    {"prefix", O_FIXED},
+};
+
+#define NOPTIONS (sizeof(options) / sizeof(options[0]))
+
+static const char *const remains[] = {NULL, "off", "on", "failed"};
+static const char *const titles[] = {NULL, "off", "top"};
+
+static const struct option *option_named(const char *name) {
+	for (size_t k = 0; k < NOPTIONS; k++)
+		if (!strcmp(options[k].name, name))
+			return &options[k];
+	return NULL;
+}
+
+static int word(const char *const *words, int n, const char *v) {
+	for (int k = 1; k < n; k++)
+		if (!strcmp(words[k], v))
+			return k;
+	return 0;
+}
+
+static struct opts *group_opts(const struct pane *t) {
+	int gi = group_index(t->group);
+	return gi >= 0 ? &w.groups[gi].o : &w.global;
+}
+
+static const char *pick(const char *a, const char *b, const char *c) {
+	return *a ? a : *b ? b : *c ? c : NULL;
+}
+
+int pane_remain(int i) {
+	const struct pane *t = &w.panes[i];
+	int v = t->o.remain             ? t->o.remain
+	        : group_opts(t)->remain ? group_opts(t)->remain
+	                                : w.global.remain;
+	return v ? v : REMAIN_OFF;
+}
+
+int group_titles(int gi) {
+	int v = gi >= 0 && w.groups[gi].o.titles ? w.groups[gi].o.titles
+	                                         : w.global.titles;
+	return v == TITLES_TOP;
+}
+
+static const char *own_value(const struct opts *o, const struct option *op,
+                             struct fmt *f) {
+	switch (op->type) {
+	case O_STYLE:
+		return *o->border_style ? o->border_style : NULL;
+	case O_ACTIVE:
+		return *o->active_style ? o->active_style : NULL;
+	case O_FORMAT:
+		return *o->border_format ? o->border_format : NULL;
+	case O_REMAIN:
+		return remains[o->remain];
+	case O_TITLES:
+		return titles[o->titles];
+	case O_FIXED:
+		if (o != &w.global)
+			return NULL;
+		if (!strcmp(op->name, "prefix"))
+			return "C-b";
+		snprintf(f->num, sizeof(f->num), "%s",
+		         getenv("SHELL") ? getenv("SHELL") : "/bin/sh");
+		return f->num;
+	}
+	return NULL;
+}
+
+static const char *fallback(const struct option *op) {
+	switch (op->type) {
+	case O_STYLE:
+	case O_ACTIVE:
+	case O_IGNORED:
+		return "default";
+	case O_FORMAT:
+		return " #{pane_title} ";
+	case O_REMAIN:
+	case O_TITLES:
+		return "off";
+	}
+	return NULL;
+}
+
+struct level {
+	struct opts *o;
+	int pane, window;
+};
+
+static int level_of(struct run *r, const struct tmux_cmd *c, int window,
+                    struct level *l) {
+	const char *t = tmux_value(c, 't');
+	if (tmux_flag(c, 's'))
+		return unsupported(r, c->name, 's');
+	l->pane = find_pane(r, t);
+	if (tmux_flag(c, 'g')) {
+		l->o = &w.global, l->window = -1;
+		return 0;
+	}
+	if (l->pane < 0)
+		return fail(r, "can't find pane: %s", t ? t : "");
+	l->window = group_index(w.panes[l->pane].group);
+	l->o = tmux_flag(c, 'p') && !window ? &w.panes[l->pane].o
+	                                    : &w.groups[l->window].o;
+	return 0;
+}
+
+static int put_text(char *dst, size_t size, const char *v) {
+	if (strlen(v) >= size)
+		return -1;
+	memcpy(dst, v, strlen(v) + 1);
+	return 0;
+}
+
+static int set_option(struct run *r, const struct tmux_cmd *c) {
+	for (const char *f = "aU"; *f; f++)
+		if (tmux_flag(c, *f))
+			return unsupported(r, c->name, *f);
+	if (!c->argc)
+		return fail(r, "an option is needed");
+	const struct option *op = option_named(c->argv[0]);
+	if (!op)
+		return tmux_flag(c, 'q') ? 0
+		                         : fail(r, "invalid option: %s", c->argv[0]);
+	if (op->type == O_FIXED)
+		return fail(r, "frost: %s cannot be set", op->name);
+	struct level l;
+	struct fmt f = {-1, ""};
+	if (level_of(r, c, op->type == O_TITLES, &l))
+		return 1;
+	if (tmux_flag(c, 'o') && own_value(l.o, op, &f))
+		return tmux_flag(c, 'q') ? 0 : fail(r, "already set: %s", op->name);
+	const char *v = c->argc > 1 ? c->argv[1] : NULL;
+	char expanded[FORMAT_MAX];
+	if (v && tmux_flag(c, 'F')) {
+		f.pane = l.pane;
+		tmux_format(v, var, &f, expanded, sizeof(expanded));
+		v = expanded;
+	}
+	if (!v && !tmux_flag(c, 'u'))
+		return fail(r, "a value is needed for %s", op->name);
+	int bad = 0;
+	switch (op->type) {
+	case O_STYLE:
+		bad = put_text(l.o->border_style, STYLE_MAX, v ? v : "");
+		break;
+	case O_ACTIVE:
+		bad = put_text(l.o->active_style, STYLE_MAX, v ? v : "");
+		break;
+	case O_FORMAT:
+		bad = put_text(l.o->border_format, FORMAT_MAX, v ? v : "");
+		break;
+	case O_REMAIN:
+		l.o->remain = v ? word(remains, 4, v) : REMAIN_UNSET;
+		bad = v && !l.o->remain;
+		break;
+	case O_TITLES:
+		if (v && !strcmp(v, "bottom"))
+			return fail(r, "frost: the titles go on top");
+		l.o->titles = v ? word(titles, 3, v) : TITLES_UNSET;
+		bad = v && !l.o->titles;
+		break;
+	}
+	if (bad)
+		return fail(r, "bad value for %s: %s", op->name, v);
+	relayout();
+	return 0;
+}
+
+static void show_one(struct run *r, const struct option *op, const char *v,
+                     int bare) {
+	char line[FORMAT_MAX + 64];
+	int plain = *v && !strpbrk(v, " \t\"#");
+	if (bare)
+		snprintf(line, sizeof(line), "%s", v);
+	else
+		snprintf(line, sizeof(line), plain ? "%s %s" : "%s \"%s\"", op->name,
+		         v);
+	size_t n = strlen(line);
+	if (r->nout + n + 1 > sizeof(r->out))
+		return;
+	memcpy(r->out + r->nout, line, n);
+	r->nout += n;
+	r->out[r->nout++] = '\n';
+}
+
+static int show_options(struct run *r, const struct tmux_cmd *c) {
+	if (tmux_flag(c, 'H'))
+		return unsupported(r, c->name, 'H');
+	const struct option *only = NULL;
+	if (c->argc && !(only = option_named(c->argv[0])))
+		return tmux_flag(c, 'q') ? 0
+		                         : fail(r, "invalid option: %s", c->argv[0]);
+	struct level l;
+	if (level_of(r, c, only && only->type == O_TITLES, &l))
+		return 1;
+	for (size_t k = 0; k < NOPTIONS; k++) {
+		const struct option *op = &options[k];
+		if (only && op != only)
+			continue;
+		struct fmt f = {l.pane, ""};
+		const char *v = own_value(l.o, op, &f);
+		if (!v && tmux_flag(c, 'A') && l.pane >= 0) {
+			const struct pane *t = &w.panes[l.pane];
+			v = own_value(&t->o, op, &f);
+			v = v ? v : own_value(group_opts(t), op, &f);
+		}
+		if (!v && tmux_flag(c, 'A'))
+			v = own_value(&w.global, op, &f);
+		if (!v && tmux_flag(c, 'A'))
+			v = fallback(op);
+		if (v)
+			show_one(r, op, v, tmux_flag(c, 'v'));
+	}
+	return 0;
+}
+
+struct title {
+	struct cell *row;
+	int cols, x;
+};
+
+static size_t utf8_next(const char *s, size_t n, uint32_t *cp) {
+	const unsigned char *u = (const unsigned char *)s;
+	int need = u[0] < 0x80    ? 0
+	           : u[0] >= 0xF5 ? -1
+	           : u[0] >= 0xF0 ? 3
+	           : u[0] >= 0xE0 ? 2
+	           : u[0] >= 0xC2 ? 1
+	                          : -1;
+	if (need < 0 || (size_t)need >= n) {
+		*cp = u[0] < 0x80 ? u[0] : 0xFFFD;
+		return 1;
+	}
+	uint32_t v = need ? u[0] & (0x3Fu >> need) : u[0];
+	for (int k = 1; k <= need; k++) {
+		if ((u[k] & 0xC0) != 0x80) {
+			*cp = 0xFFFD;
+			return 1;
+		}
+		v = v << 6 | (u[k] & 0x3F);
+	}
+	*cp = v;
+	return (size_t)need + 1;
+}
+
+static void title_piece(void *ctx, const char *s, size_t n,
+                        const struct tmux_style *st) {
+	struct title *tc = ctx;
+	uint16_t attr = st->bold ? ATTR_BOLD : 0;
+	for (size_t k = 0; k < n && tc->x < tc->cols;) {
+		uint32_t cp;
+		k += utf8_next(s + k, n - k, &cp);
+		int wd = cp < 0x20 ? 0 : width_of(cp);
+		if (wd <= 0)
+			continue;
+		if (tc->x + wd > tc->cols)
+			break;
+		tc->row[tc->x] = (struct cell){
+		    .cp = cp, .fg = st->fg, .attr = wd == 2 ? attr | ATTR_WIDE : attr};
+		if (wd == 2)
+			tc->row[tc->x + 1] =
+			    (struct cell){.fg = st->fg, .attr = ATTR_WIDE_TAIL};
+		tc->x += wd;
+	}
+}
+
+int tmux_title(int i, int active, uint32_t fg, struct cell *row, int cols) {
+	const struct pane *t = &w.panes[i];
+	const struct opts *g = group_opts(t);
+	const char *spec =
+	    active
+	        ? pick(t->o.active_style, g->active_style, w.global.active_style)
+	        : pick(t->o.border_style, g->border_style, w.global.border_style);
+	struct tmux_style base = {fg, 0}, st = base;
+	if (spec)
+		tmux_style(spec, &base, &st);
+	for (int x = 0; x < cols; x++)
+		row[x] = (struct cell){
+		    .cp = 0x2500, .fg = st.fg, .attr = st.bold ? ATTR_BOLD : 0};
+	const char *format =
+	    pick(t->o.border_format, g->border_format, w.global.border_format);
+	struct fmt f = {i, ""};
+	struct title tc = {row, cols, cols > 1 ? 1 : 0};
+	tmux_format_styled(format ? format : " #{pane_title} ", &st, var, &f,
+	                   title_piece, &tc);
+	return tc.x;
+}
+
 static int order(struct run *r, int argc, char **argv) {
 	static const struct {
 		const char *name;
 		int (*fn)(struct run *, const struct tmux_cmd *);
 	} orders[] = {
-	    {"display-message", display}, {"list-panes", list},
-	    {"split-window", split},      {"kill-pane", kill_pane},
-	    {"select-pane", select_pane}, {"select-layout", select_layout},
-	    {"resize-pane", resize}};
+	    {"display-message", display},  {"list-panes", list},
+	    {"split-window", split},       {"kill-pane", kill_pane},
+	    {"select-pane", select_pane},  {"select-layout", select_layout},
+	    {"resize-pane", resize},       {"respawn-pane", respawn},
+	    {"set-option", set_option},    {"set-window-option", set_option},
+	    {"show-options", show_options}};
 	struct tmux_cmd c;
 	if (tmux_parse(argc, argv, &c) < 0)
 		return fail(r, "frost: tmux cannot read the order %s", argv[0]);

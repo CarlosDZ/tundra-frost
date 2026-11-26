@@ -82,7 +82,8 @@ int group_focus(int gi) {
 
 unsigned group_new(void) {
 	struct group *g = &w.groups[w.ngroups++];
-	*g = (struct group){w.next_group++, LAYOUT_MAIN_VERTICAL, 50, 0, 0};
+	*g = (struct group){
+	    .id = w.next_group++, .layout = LAYOUT_MAIN_VERTICAL, .main = 50};
 	return g->id;
 }
 
@@ -103,7 +104,7 @@ void relayout(void) {
 		int idx[PANES_MAX], n = group_panes(g, idx);
 		struct box b[PANES_MAX];
 		mosaic_layout(w.cols, rows, n, w.groups[g].layout, w.groups[g].main,
-		              w.groups[g].titles && n > 1, b);
+		              group_titles(g) && n > 1, b);
 		for (int k = 0; k < n; k++) {
 			struct pane *t = &w.panes[idx[k]];
 			int resized = t->box.cols != b[k].cols || t->box.rows != b[k].rows;
@@ -162,7 +163,11 @@ static void program_of(struct pane *t, char **argv) {
 	if (slash)
 		n -= (size_t)(slash + 1 - p), p = slash + 1;
 	snprintf(t->program, sizeof(t->program), "%.*s", (int)n, p);
-	memcpy(t->title, t->program, strlen(t->program) + 1);
+}
+
+static int titled(const struct pane *t) {
+	int gi = group_index(t->group);
+	return t->group == T.group && gi >= 0 && group_titles(gi);
 }
 
 static int spawn(struct pane *t, char **argv, const char *cwd) {
@@ -220,6 +225,7 @@ int pane_new(unsigned group, int at, char **argv, const char *cwd, int focus) {
 	struct pane *t = &w.panes[i];
 	*t = (struct pane){.sock = -1, .id = w.next_pane++, .group = group};
 	program_of(t, argv);
+	memcpy(t->title, t->program, strlen(t->program) + 1);
 	if (cwd)
 		cut_copy(t->cwd, sizeof(t->cwd), cwd);
 	relayout();
@@ -270,6 +276,28 @@ void pane_drop(int i, int status) {
 	}
 }
 
+int pane_respawn(int i, char **argv, const char *cwd) {
+	struct pane *t = &w.panes[i];
+	if (t->sock >= 0) {
+		msg_send(t->sock, MSG_CLOSE, NULL, 0, -1);
+		close(t->sock);
+		t->sock = -1;
+	}
+	if (t->map)
+		munmap(t->map, t->map_size);
+	t->map = NULL;
+	t->dead = t->failed = t->damage = t->closing = 0;
+	program_of(t, argv);
+	if (cwd && *cwd)
+		cut_copy(t->cwd, sizeof(t->cwd), cwd);
+	w.full = 1;
+	if (spawn(t, argv, t->cwd) < 0) {
+		t->dead = t->failed = 1;
+		return -1;
+	}
+	return 0;
+}
+
 static void take_shm(struct pane *t, int fd) {
 	struct stat st;
 	if (fstat(fd, &st) < 0 || st.st_size < (off_t)SHM_HEAD_SIZE)
@@ -285,7 +313,17 @@ static void take_shm(struct pane *t, int fd) {
 }
 
 static void ended(int i, int failed) {
-	pane_drop(i, w.panes[i].closing || !failed ? 0 : 1);
+	struct pane *t = &w.panes[i];
+	int remain = pane_remain(i);
+	if (!t->closing &&
+	    (remain == REMAIN_ON || (remain == REMAIN_FAILED && failed))) {
+		close(t->sock);
+		t->sock = -1;
+		t->dead = 1, t->failed = failed;
+		w.full |= t->group == T.group;
+		return;
+	}
+	pane_drop(i, t->closing || !failed ? 0 : 1);
 }
 
 void from_term(int i) {
@@ -339,7 +377,7 @@ void from_term(int i) {
 			snprintf(t->name, sizeof(t->name), "%s", in->name);
 			if (in->title[0])
 				snprintf(t->title, sizeof(t->title), "%s", in->title);
-			w.full |= line_shown();
+			w.full |= line_shown() || titled(t);
 		}
 		break;
 	case MSG_CWD: {
@@ -367,7 +405,7 @@ void from_term(int i) {
 		cut_copy(t->title, sizeof(t->title), w.msg);
 		if (shown)
 			show_title();
-		w.full |= line_shown();
+		w.full |= line_shown() || titled(t);
 		break;
 	case MSG_EXIT: {
 		int32_t st = 1;

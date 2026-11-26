@@ -14,13 +14,24 @@
 #include "render.h"
 
 #define PANES_MAX 32
+#define STYLE_MAX 64
+#define FORMAT_MAX 128
+
+enum { REMAIN_UNSET, REMAIN_OFF, REMAIN_ON, REMAIN_FAILED };
+enum { TITLES_UNSET, TITLES_OFF, TITLES_TOP };
+
+struct opts {
+	char border_style[STYLE_MAX], active_style[STYLE_MAX];
+	char border_format[FORMAT_MAX];
+	int remain, titles;
+};
 
 struct pane {
 	int sock;
 	uint8_t *map;
 	size_t map_size;
 	uint32_t seq;
-	int damage, closing, marked;
+	int damage, closing, marked, dead, failed;
 	unsigned id;
 	unsigned group;
 	unsigned number;
@@ -29,14 +40,15 @@ struct pane {
 	char program[32];
 	struct box box;
 	uint8_t *stale[2];
+	struct opts o;
 };
 
 struct group {
 	unsigned id;
 	enum layout layout;
 	int main;
-	int titles;
 	unsigned focus;
+	struct opts o;
 };
 
 struct buffer {
@@ -101,6 +113,7 @@ struct win {
 
 	int ctl;
 	char ctl_path[108];
+	struct opts global;
 
 	int line_open, line_error;
 	char line_input[LINE_INPUT_MAX], line_msg[256];
@@ -136,6 +149,7 @@ unsigned group_new(void);
 int pane_new(unsigned group, int at, char **argv, const char *cwd, int focus);
 void pane_drop(int i, int status);
 void pane_focus(int i);
+int pane_respawn(int i, char **argv, const char *cwd);
 void relayout(void);
 void from_term(int i);
 int term_rows(void);
@@ -146,5 +160,8 @@ int attach_pane(const char *arg, int number);
 int tmux_listen(void);
 void tmux_accept(void);
 void tmux_close(void);
+int pane_remain(int i);
+int group_titles(int gi);
+int tmux_title(int i, int active, uint32_t fg, struct cell *row, int cols);
 
 #endif

@@ -108,10 +108,13 @@ static void top_configure(void *data, struct xdg_toplevel *t, int32_t width,
 static void top_close(void *data, struct xdg_toplevel *t) {
 	(void)data, (void)t;
 	for (int i = 0; i < w.npanes; i++)
-		if (!w.panes[i].closing) {
+		if (!w.panes[i].closing && !w.panes[i].dead) {
 			msg_send(w.panes[i].sock, MSG_CLOSE, NULL, 0, -1);
 			w.panes[i].closing = 1;
 		}
+	for (int i = w.npanes - 1; i >= 0 && !w.ended; i--)
+		if (w.panes[i].dead)
+			pane_drop(i, w.panes[i].failed);
 }
 
 static void top_bounds(void *data, struct xdg_toplevel *t, int32_t width,
@@ -357,6 +360,38 @@ static void paint_borders(struct buffer *b, const int *idx, int n) {
 	free(row);
 }
 
+static void paint_titles(struct buffer *b, const int *idx, int n) {
+	struct cell *row = calloc((size_t)w.cols, sizeof(*row));
+	for (int k = 0; k < n && row; k++) {
+		const struct box *bx = &w.panes[idx[k]].box;
+		if (bx->title_y < 0)
+			continue;
+		int on = idx[k] == w.cur;
+		int end = tmux_title(idx[k], on,
+		                     on ? theme_cell("text", 0xccd2d6)
+		                        : theme_cell("border", 0x3e494f),
+		                     row, bx->cols);
+		paint_cells(b, bx->x, bx->title_y, row, bx->cols);
+#ifdef FROST_TEST
+		char what[256];
+		size_t o = (size_t)snprintf(what, sizeof(what), "title %%%u [",
+		                            w.panes[idx[k]].id);
+		long colour = 0;
+		for (int x = 1; x < end && o + 12 < sizeof(what); x++) {
+			if (!colour && row[x].cp != ' ')
+				colour = row[x].fg;
+			if (row[x].cp)
+				what[o++] = row[x].cp < 0x80 ? (char)row[x].cp : '?';
+		}
+		snprintf(what + o, sizeof(what) - o, "], colour");
+		test_log(what, colour);
+#else
+		(void)end;
+#endif
+	}
+	free(row);
+}
+
 static void draw_pane(struct pane *t, int bi, int full) {
 	struct view v;
 	const struct box *bx = &t->box;
@@ -431,8 +466,10 @@ static void draw(void) {
 	if (full) {
 		tdraw_fill(b->cv, 0, 0, w.bw, w.bh,
 		           render_color(&w.r, &v, COLOR_DEFAULT, 0));
-		if (n > 1)
+		if (n > 1) {
 			paint_borders(b, idx, n);
+			paint_titles(b, idx, n);
+		}
 	}
 	for (int k = 0; k < n; k++)
 		draw_pane(&w.panes[idx[k]], b == &w.buf[1], full);

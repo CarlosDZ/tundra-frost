@@ -492,11 +492,39 @@ check "$?:$(on_tmux list-panes -F '#{pane_id}' | tr '\n' ' ')" "0:%0 %1 " \
 	"kill-pane closes a pane"
 on_tmux kill-pane -t %9 2>/dev/null
 check "$?" 1 "a pane that is not there is an error"
+on_tmux set-option -p -t %1 pane-border-style fg=blue
+on_tmux set-option -p -t %1 pane-active-border-style fg=blue
+on_tmux select-pane -t %1 -T hola-1
+on_tmux set-option -p -t %1 pane-border-format \
+	'#[fg=blue,bold] #{pane_title} #[default]'
+on_tmux set-option -w -t @0 pane-border-status top
+sleep 0.3
+check "$(on_tmux list-panes -F '#{pane_top}' | tr '\n' ' ')" "1 1 " \
+	"pane-border-status top leaves a row over each pane for its title"
+check "$(grep '^title %1 ' "$WORK/log.mosaic" | tail -1)" \
+	"title %1 [ hola-1 ], colour 16777220" \
+	"the title of a pane comes in its format and its colour"
+on_tmux set-option -p -t %1 remain-on-exit failed
+on_tmux respawn-pane -k -t %1 -- 'exit 3'
+sleep 0.5
+check "$(on_tmux list-panes -F '#{pane_dead}' | tr -d '\n')" "01" \
+	"remain-on-exit failed keeps the pane of a program that fails"
+on_tmux respawn-pane -t %1 -- 'sleep 30'
+sleep 0.3
+check "$(on_tmux display-message -p -t %1 '#{pane_dead} #{pane_title}')" \
+	"0 hola-1" "respawn-pane starts it again, under the same title"
+check "$(on_tmux respawn-pane -t %0 -- true 2>&1; echo "$?")" \
+	"pane %0 still active
+1" "a pane still running is not respawned without -k"
+check "$(on_tmux show-options -g prefix):$(on_tmux show-options -v -p -t %1 \
+	remain-on-exit)" "prefix C-b:failed" "show-options answers what was set"
+on_tmux respawn-pane -k -t %1 -- 'exit 4'
+sleep 0.3
 check "$(on_tmux new-window 2>&1; echo "$?")" \
 	"frost: tmux new-window is not supported
 1" "an order frost does not do fails, and says so"
 chord 125 14
 wait_end $mosaic
-check "$?" 0 "closing the window closes every pane"
+check "$?" 0 "closing the window closes every pane, the dead ones too"
 
 finish
