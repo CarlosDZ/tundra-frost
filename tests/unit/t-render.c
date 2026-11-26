@@ -98,10 +98,12 @@ static void test_layout(void) {
 	      "the cell comes from the mono font");
 	CHECK(cols == 4 && rows == 2 && r.ox == 2 && r.oy == 1,
 	      "the grid is centered, what is left split around it");
-	start("");
-	render_margins(&r, cv, &v);
-	CHECK(at(0, 0) == BLACK && at(W - 1, H - 1) == BLACK && at(5, 5) == 0,
-	      "the margins take the background, the grid is left alone");
+	start("abcd");
+	r.clip_cols = 2;
+	render_row(&r, cv, &v, 0);
+	r.clip_cols = 0;
+	CHECK(pix(1, 0, 0, 0) != 0 && pix(2, 0, 0, 0) == 0 && pix(3, 0, 7, 15) == 0,
+	      "a row stops at the columns of its pane");
 }
 
 static void test_colors(void) {

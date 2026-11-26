@@ -30,6 +30,7 @@
 #include "render.h"
 #include "select.h"
 #include "shm.h"
+#include "winint.h"
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -41,91 +42,8 @@
 #define CURSOR_SIZE 24
 #define CLICK_MS 400
 #define PASTE_MAX (16u << 20)
-#define TABS_MAX 32
 
-struct tab {
-	int sock;
-	uint8_t *map;
-	size_t map_size;
-	uint32_t seq;
-	int damage, closing, marked;
-	unsigned number;
-	char title[TERM_TITLE_MAX], name[TERM_NAME_MAX];
-	char cwd[PATH_MAX];
-};
-
-struct buffer {
-	struct wl_buffer *wl;
-	struct tdraw_canvas *cv;
-	uint8_t *stale;
-	int busy;
-};
-
-static struct win {
-	struct wl_display *dpy;
-	struct wl_registry *reg;
-	struct wl_compositor *comp;
-	struct wl_shm *shm;
-	struct xdg_wm_base *wm;
-	struct zxdg_decoration_manager_v1 *deco_mgr;
-	struct zxdg_toplevel_decoration_v1 *deco;
-	struct wl_surface *surf;
-	struct xdg_surface *xs;
-	struct xdg_toplevel *top;
-	struct wl_seat *seat;
-	struct wl_keyboard *keyboard;
-	struct wl_pointer *pointer;
-	struct wl_cursor_theme *cursor_theme;
-	struct wl_surface *cursor_surf;
-	const char *cursor_now;
-	uint32_t enter_serial;
-	double px, py;
-	int held;
-	int last_x, last_y;
-	double scroll;
-	int value120, discrete, finger;
-
-	int sel_on, selecting, sel_mode, sel_anchor, sel_head, clicks, click_pos;
-	uint32_t click_time, sel_offset;
-	uint32_t serial;
-	struct wl_data_device_manager *ddm;
-	struct wl_data_device *dd;
-	struct wl_data_source *source;
-	struct wl_data_offer *offer;
-	char *clip, *paste;
-	size_t clip_len, paste_len, paste_cap;
-	int paste_fd;
-
-	int link_kind, link_from, link_to, link_id, link_click, link_waiting;
-	char link_url[LINK_MAX];
-
-	int next_w, next_h, next_focus, configured, focused;
-	struct buffer buf[2], *shown;
-	void *pool;
-	size_t pool_size;
-	int bw, bh;
-	struct wl_callback *frame;
-
-	struct tab tabs[TABS_MAX];
-	int ntabs, cur, ended, status;
-	int cols, rows;
-	int full;
-
-	int line_open, line_error;
-	char line_input[LINE_INPUT_MAX], line_msg[256];
-
-	struct render r;
-	struct tdraw_theme *theme;
-	int blink, blinking, lit, tick;
-	int cur_y, cur_drawn;
-
-	struct kbd kbd;
-	int rep, rep_rate, rep_delay;
-	uint32_t rep_key;
-	char msg[MSG_MAX];
-} w;
-
-#define T (w.tabs[w.cur])
+struct win w;
 
 #ifdef FROST_TEST
 static void test_log(const char *what, long n) {
@@ -189,10 +107,10 @@ static void top_configure(void *data, struct xdg_toplevel *t, int32_t width,
 
 static void top_close(void *data, struct xdg_toplevel *t) {
 	(void)data, (void)t;
-	for (int i = 0; i < w.ntabs; i++)
-		if (!w.tabs[i].closing) {
-			msg_send(w.tabs[i].sock, MSG_CLOSE, NULL, 0, -1);
-			w.tabs[i].closing = 1;
+	for (int i = 0; i < w.npanes; i++)
+		if (!w.panes[i].closing) {
+			msg_send(w.panes[i].sock, MSG_CLOSE, NULL, 0, -1);
+			w.panes[i].closing = 1;
 		}
 }
 
@@ -230,7 +148,6 @@ static void free_buffers(void) {
 		if (b->wl)
 			wl_buffer_destroy(b->wl);
 		tdraw_canvas_free(b->cv);
-		free(b->stale);
 		*b = (struct buffer){0};
 	}
 	w.shown = NULL;
@@ -266,29 +183,28 @@ static int make_buffers(int width, int height) {
 		                                  WL_SHM_FORMAT_ARGB8888);
 		wl_buffer_add_listener(b->wl, &buffer_listener, b);
 		b->cv = tdraw_canvas_new(px, width, height, width * 4);
-		b->stale = malloc((size_t)height);
 	}
 	wl_shm_pool_destroy(pool);
 	close(fd);
 	w.bw = width, w.bh = height;
 	for (int i = 0; i < 2; i++)
-		if (!w.buf[i].cv || !w.buf[i].stale)
+		if (!w.buf[i].cv)
 			return -1;
 	return 0;
 }
 
-static int view_of(struct view *v) {
-	if (!T.map)
+static int view_of(const struct pane *t, struct view *v) {
+	if (!t->map)
 		return -1;
-	const struct shm_head *h = (const struct shm_head *)T.map;
+	const struct shm_head *h = (const struct shm_head *)t->map;
 	if (h->magic != SHM_MAGIC || h->version != SHM_VERSION || !h->cols ||
-	    !h->rows || T.map_size < shm_layout(h->cols, h->rows).size)
+	    !h->rows || t->map_size < shm_layout(h->cols, h->rows).size)
 		return -1;
 	struct shm_layout l = shm_layout(h->cols, h->rows);
 	*v = (struct view){h->cols,
 	                   h->rows,
-	                   (const struct cell *)(T.map + l.cells),
-	                   (const uint16_t *)(T.map + l.map),
+	                   (const struct cell *)(t->map + l.cells),
+	                   (const uint16_t *)(t->map + l.map),
 	                   h->x,
 	                   h->y,
 	                   h->pending,
@@ -298,15 +214,15 @@ static int view_of(struct view *v) {
 	                   h->reverse,
 	                   h->palette,
 	                   h->palette_set,
-	                   T.map + l.lines,
+	                   t->map + l.lines,
 	                   0,
 	                   0,
 	                   0,
 	                   0};
-	if (w.sel_on)
+	if (t == &T && w.sel_on)
 		select_span(v, w.sel_anchor, w.sel_head, w.sel_mode, &v->sel_from,
 		            &v->sel_to);
-	if (w.link_kind)
+	if (t == &T && w.link_kind)
 		v->link_from = w.link_from, v->link_to = w.link_to;
 	return 0;
 }
@@ -338,8 +254,6 @@ static void blink_arm(int on) {
 static void frame_done(void *data, struct wl_callback *cb, uint32_t time);
 static const struct wl_callback_listener frame_listener = {frame_done};
 
-static int line_shown(void);
-
 static uint32_t theme_cell(const char *name, uint32_t fallback) {
 	uint32_t c =
 	    w.theme ? tdraw_theme_color(w.theme, name, fallback) : fallback;
@@ -347,11 +261,16 @@ static uint32_t theme_cell(const char *name, uint32_t fallback) {
 }
 
 static void paint_line(struct buffer *b) {
-	struct line_tab tabs[TABS_MAX];
-	for (int i = 0; i < w.ntabs; i++)
-		tabs[i] = (struct line_tab){w.tabs[i].name[0] ? w.tabs[i].name
-		                                              : w.tabs[i].title,
-		                            i == w.cur, w.tabs[i].marked};
+	struct line_tab tabs[PANES_MAX];
+	int cur = group_index(T.group);
+	for (int g = 0; g < w.ngroups; g++) {
+		int f = group_focus(g), marked = 0;
+		const struct pane *t = f >= 0 ? &w.panes[f] : &T;
+		for (int i = 0; i < w.npanes; i++)
+			marked |= w.panes[i].group == w.groups[g].id && w.panes[i].marked;
+		tabs[g] = (struct line_tab){t->name[0] ? t->name : t->title, g == cur,
+		                            marked};
+	}
 	struct line_colors lc = {
 	    theme_cell("frost.line", 0x1f2529), theme_cell("text", 0xccd2d6),
 	    theme_cell("dim", 0x889196), theme_cell("alert", 0xff1712)};
@@ -367,7 +286,7 @@ static void paint_line(struct buffer *b) {
 		memcpy(logged, w.link_url, sizeof(logged));
 	}
 #endif
-	line_cells(row, w.cols, tabs, w.ntabs, w.line_open, w.line_input,
+	line_cells(row, w.cols, tabs, w.ngroups, w.line_open, w.line_input,
 	           link ? w.link_url : w.line_msg, !link && w.line_error, &lc, &cx);
 	uint16_t map = 0;
 	struct view lv = {w.cols, 1,    row,     &map,       cx < 0 ? 0 : cx,
@@ -384,58 +303,86 @@ static void paint_line(struct buffer *b) {
 	                         w.r.ch);
 }
 
+static void draw_pane(struct pane *t, int bi, int full) {
+	struct view v;
+	const struct box *bx = &t->box;
+	uint8_t *stale = t->stale[bi], *other = t->stale[!bi];
+	if (!stale || !other || view_of(t, &v) < 0)
+		return;
+	const uint8_t *dirty = t->map + shm_layout(v.cols, v.rows).dirty;
+	int focus = t == &T;
+	int limit = (line_shown() ? w.rows - 1 : w.rows) - bx->y;
+	int below = bx->rows < limit ? bx->rows : limit;
+	int rows = v.rows < below ? v.rows : below;
+	if (full)
+		memset(stale, 1, (size_t)bx->rows);
+	if (focus && w.cur_drawn && w.cur_y >= 0 && w.cur_y < rows)
+		stale[w.cur_y] = 1;
+	if (focus && v.y < rows)
+		stale[v.y] = 1;
+	int ox = w.r.ox, oy = w.r.oy;
+	w.r.ox += bx->x * w.r.cw, w.r.oy += bx->y * w.r.ch;
+	w.r.clip_cols = bx->cols;
+	int top = rows, bottom = -1;
+	for (int y = 0; y < rows; y++) {
+		if (!stale[y] && !(t->damage && dirty[y]))
+			continue;
+		render_row(&w.r, w.buf[bi].cv, &v, y);
+		stale[y] = 0;
+		other[y] = 1;
+		top = y < top ? y : top;
+		bottom = y;
+	}
+	if (focus) {
+		if (v.y < rows)
+			render_cursor(&w.r, w.buf[bi].cv, &v, w.focused && !w.line_open,
+			              w.lit);
+		w.cur_y = v.y, w.cur_drawn = 1;
+	}
+	if (full)
+		memset(other, 1, (size_t)bx->rows);
+	else if (bottom >= 0)
+		wl_surface_damage_buffer(w.surf, w.r.ox, w.r.oy + top * w.r.ch,
+		                         bx->cols * w.r.cw,
+		                         (bottom - top + 1) * w.r.ch);
+	w.r.ox = ox, w.r.oy = oy, w.r.clip_cols = 0;
+	if (t->damage) {
+		msg_send(t->sock, MSG_ACK, &t->seq, sizeof(t->seq), -1);
+		t->damage = 0;
+	}
+}
+
 static void draw(void) {
 	struct view v;
-	if (w.frame || !(T.damage || w.full || w.tick) || view_of(&v) < 0)
+	if (w.frame || !w.npanes || view_of(&T, &v) < 0)
+		return;
+	int idx[PANES_MAX], n = group_panes(group_index(T.group), idx);
+	int any = w.full || w.tick;
+	for (int k = 0; k < n && !any; k++)
+		any = w.panes[idx[k]].damage;
+	if (!any)
 		return;
 	struct buffer *b = !w.buf[0].busy   ? &w.buf[0]
 	                   : !w.buf[1].busy ? &w.buf[1]
 	                                    : NULL;
 	if (!b)
 		return;
-	struct buffer *other = b == &w.buf[0] ? &w.buf[1] : &w.buf[0];
-	const uint8_t *dirty = T.map + shm_layout(v.cols, v.rows).dirty;
-	int below = line_shown() ? w.rows - 1 : w.rows;
-	int rows = v.rows < below ? v.rows : below;
-	keep_selection(&v, dirty);
-
+	keep_selection(&v, T.map + shm_layout(v.cols, v.rows).dirty);
 	int blinks = w.focused && v.cursor_visible && v.cursor_blink;
 	if (blinks != w.blinking || (blinks && T.damage && v.y != w.cur_y))
 		blink_arm(blinks);
-	if (w.full) {
-		render_margins(&w.r, b->cv, &v);
-		memset(b->stale, 1, (size_t)w.bh);
-	}
-	if (w.cur_drawn && w.cur_y < rows)
-		b->stale[w.cur_y] = 1;
-	if (v.y < rows)
-		b->stale[v.y] = 1;
-	int top = rows, bottom = -1;
-	for (int y = 0; y < rows; y++) {
-		if (!b->stale[y] && !(T.damage && dirty[y]))
-			continue;
-		render_row(&w.r, b->cv, &v, y);
-		b->stale[y] = 0;
-		other->stale[y] = 1;
-		top = y < top ? y : top;
-		bottom = y;
-	}
-	if (v.y < below)
-		render_cursor(&w.r, b->cv, &v, w.focused && !w.line_open, w.lit);
-	w.cur_y = v.y, w.cur_drawn = 1, w.tick = 0;
+	int full = w.full;
+	if (full)
+		tdraw_fill(b->cv, 0, 0, w.bw, w.bh,
+		           render_color(&w.r, &v, COLOR_DEFAULT, 0));
+	for (int k = 0; k < n; k++)
+		draw_pane(&w.panes[idx[k]], b == &w.buf[1], full);
+	w.tick = 0;
 	if (line_shown())
 		paint_line(b);
-	if (w.full) {
+	if (full) {
 		w.full = 0;
-		memset(other->stale, 1, (size_t)w.bh);
 		wl_surface_damage_buffer(w.surf, 0, 0, w.bw, w.bh);
-	} else if (bottom >= 0) {
-		wl_surface_damage_buffer(w.surf, 0, w.r.oy + top * w.r.ch, w.bw,
-		                         (bottom - top + 1) * w.r.ch);
-	}
-	if (T.damage) {
-		msg_send(T.sock, MSG_ACK, &T.seq, sizeof(T.seq), -1);
-		T.damage = 0;
 	}
 	wl_surface_attach(w.surf, b->wl, 0, 0);
 	b->busy = 1;
@@ -514,7 +461,7 @@ static const struct wl_data_source_listener source_listener = {
     .cancelled = source_cancelled,
 };
 
-static void set_clipboard(char *text, size_t len) {
+void set_clipboard(char *text, size_t len) {
 	if (!w.dd || !text || !len) {
 		free(text);
 		return;
@@ -536,7 +483,7 @@ static void copy(void) {
 	struct view v;
 	size_t n;
 	test_log("copy, selection", w.sel_on);
-	if (!w.sel_on || view_of(&v) < 0 || v.sel_to <= v.sel_from)
+	if (!w.sel_on || view_of(&T, &v) < 0 || v.sel_to <= v.sel_from)
 		return;
 	char *text = select_text(&v, v.sel_from, v.sel_to, &n);
 	set_clipboard(text, n);
@@ -801,7 +748,7 @@ static void kb_repeat_info(void *data, struct wl_keyboard *kb, int32_t rate,
 static const struct wl_keyboard_listener keyboard_listener = {
     kb_keymap, kb_enter, kb_leave, kb_key, kb_modifiers, kb_repeat_info};
 
-static void set_cursor(void) {
+void set_cursor(void) {
 	const struct shm_head *h = head();
 	const char *name = w.link_kind     ? "pointer"
 	                   : h && h->mouse ? "default"
@@ -827,9 +774,27 @@ static void set_cursor(void) {
 	w.cursor_now = name;
 }
 
-static void pointer_at(struct mouse_event *e) {
-	int gw = w.cols * w.r.cw, gh = w.rows * w.r.ch;
+static int pointer_pane(void) {
 	int x = (int)w.px - w.r.ox, y = (int)w.py - w.r.oy;
+	if (x < 0 || y < 0 || w.r.cw <= 0 || w.r.ch <= 0 || !w.npanes)
+		return -1;
+	int col = x / w.r.cw, row = y / w.r.ch;
+	for (int i = 0; i < w.npanes; i++) {
+		const struct box *b = &w.panes[i].box;
+		int top = b->title_y >= 0 ? b->title_y : b->y;
+		if (w.panes[i].group == T.group && col >= b->x &&
+		    col < b->x + b->cols && row >= top && row < b->y + b->rows)
+			return i;
+	}
+	return -1;
+}
+
+static void pointer_at(struct mouse_event *e) {
+	const struct box *b = &T.box;
+	int gw = b->cols > 0 ? b->cols * w.r.cw : 1;
+	int gh = b->rows > 0 ? b->rows * w.r.ch : 1;
+	int x = (int)w.px - w.r.ox - b->x * w.r.cw;
+	int y = (int)w.py - w.r.oy - b->y * w.r.ch;
 	e->x = x < 0 ? 0 : x >= gw ? gw - 1 : x;
 	e->y = y < 0 ? 0 : y >= gh ? gh - 1 : y;
 	e->col = e->x / w.r.cw, e->row = e->y / w.r.ch;
@@ -881,7 +846,8 @@ static int cell_index(void) {
 static void update_hover(void) {
 	struct view v;
 	int kind = LINK_NONE, from = 0, to = 0, id = 0;
-	if (w.enter_serial && (kbd_mods(&w.kbd) & MOD_CTRL) && view_of(&v) == 0)
+	if (w.enter_serial && (kbd_mods(&w.kbd) & MOD_CTRL) &&
+	    pointer_pane() == w.cur && view_of(&T, &v) == 0)
 		kind = link_at(&v, cell_index(), &from, &to, &id, w.link_url);
 	if (kind != w.link_kind || from != w.link_from || to != w.link_to) {
 		w.link_kind = kind, w.link_from = from, w.link_to = to;
@@ -898,7 +864,7 @@ static void update_hover(void) {
 	}
 }
 
-static void open_url(const char *url) {
+void open_url(const char *url) {
 	if (!link_allowed(url)) {
 		fprintf(stderr, "frost: only http, https, ftp, file and mailto links "
 		                "are opened\n");
@@ -995,6 +961,18 @@ static void ptr_button(void *data, struct wl_pointer *p, uint32_t serial,
 	int b = button_of(button);
 	if (b < 0)
 		return;
+	int pressed = state == WL_POINTER_BUTTON_STATE_PRESSED;
+	if (!pressed && b == w.swallow) {
+		w.swallow = MB_NONE;
+		return;
+	}
+	int at = pressed ? pointer_pane() : -1;
+	if (at >= 0 && at != w.cur) {
+		w.serial = serial;
+		w.swallow = b;
+		pane_focus(at);
+		return;
+	}
 	if (b == MB_LEFT &&
 	    (w.link_click ||
 	     (w.link_kind && state == WL_POINTER_BUTTON_STATE_PRESSED))) {
@@ -1143,249 +1121,21 @@ static void focus_changed(void) {
 		repeat_arm(0);
 }
 
-static const char *term_path(void) {
-#ifdef FROST_TEST
-	static char abs[PATH_MAX];
-	const char *p = getenv("FROST_TEST_TERM");
-	if (p && *p)
-		return realpath(p, abs) ? abs : p;
-#endif
-	return TUNDRA_FROST_TERM;
+int line_shown(void) {
+	return w.ngroups >= 2 || w.line_open || (w.link_kind && w.link_url[0]);
 }
 
-static int term_rows(void) {
-	return w.ntabs >= 2 && w.rows > 1 ? w.rows - 1 : w.rows;
-}
-
-static int line_shown(void) {
-	return w.ntabs >= 2 || w.line_open || (w.link_kind && w.link_url[0]);
-}
-
-static int spawn_term(char **cmd, const char *cwd) {
-	if (w.ntabs == TABS_MAX)
-		return -1;
-	int sv[2];
-	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sv) < 0) {
-		perror("socketpair error");
-		return -1;
-	}
-	const char *path = term_path();
-	int rows = w.ntabs >= 1 && w.rows > 1 ? w.rows - 1 : w.rows;
-	pid_t pid = fork();
-	if (pid < 0) {
-		perror("fork error");
-		close(sv[0]);
-		close(sv[1]);
-		return -1;
-	}
-	if (pid == 0) {
-		if (sv[1] == 3 ? fcntl(3, F_SETFD, 0) < 0 : dup2(sv[1], 3) < 0)
-			_exit(127);
-		if (cwd && *cwd && chdir(cwd) < 0)
-			perror("chdir error");
-		char cols_s[16], rows_s[16];
-		snprintf(cols_s, sizeof(cols_s), "%d", w.cols);
-		snprintf(rows_s, sizeof(rows_s), "%d", rows);
-		int n = 0;
-		while (cmd && cmd[n])
-			n++;
-		char **argv = calloc((size_t)n + 5, sizeof(*argv));
-		if (!argv)
-			_exit(127);
-		argv[0] = (char *)path, argv[1] = "3";
-		argv[2] = cols_s, argv[3] = rows_s;
-		for (int i = 0; i < n; i++)
-			argv[4 + i] = cmd[i];
-		execv(path, argv);
-		fprintf(stderr, "frost: cannot run %s\n", path);
-		_exit(127);
-	}
-	close(sv[1]);
-	struct tab *t = &w.tabs[w.ntabs];
-	*t = (struct tab){0};
-	t->sock = sv[0];
-	snprintf(t->title, sizeof(t->title), "%s",
-	         cmd && cmd[0] ? cmd[0] : "shell");
-	w.cur = w.ntabs++;
-	return w.cur;
-}
-
-static void resize_all(void) {
-	struct msg_resize rs = {(uint16_t)w.cols, (uint16_t)term_rows(),
-	                        (uint16_t)w.r.cw, (uint16_t)w.r.ch};
-	for (int i = 0; i < w.ntabs; i++)
-		msg_send(w.tabs[i].sock, MSG_RESIZE, &rs, sizeof(rs), -1);
-}
-
-static void show_title(void) {
-	if (w.ntabs)
+void show_title(void) {
+	if (w.npanes)
 		xdg_toplevel_set_title(w.top, T.title[0] ? T.title : "frost");
 }
 
-static void switch_tab(int i) {
-	if (i < 0 || i >= w.ntabs)
-		return;
-	w.cur = i;
-	T.marked = 0;
-	w.sel_on = w.selecting = 0;
-	w.link_kind = LINK_NONE;
-	w.full = 1;
-	show_title();
-}
-
-static void drop_tab(int i, int status) {
-	struct tab *t = &w.tabs[i];
-	close(t->sock);
-	if (t->map)
-		munmap(t->map, t->map_size);
-	int was = w.ntabs;
-	memmove(&w.tabs[i], &w.tabs[i + 1], (size_t)(w.ntabs - i - 1) * sizeof(*t));
-	w.ntabs--;
-	w.tabs[w.ntabs] = (struct tab){.sock = -1};
-	if (!w.ntabs) {
-		w.status = status;
-		w.ended = 1;
-		return;
-	}
-	if (w.cur > i || w.cur == w.ntabs)
-		w.cur--;
-	if (was == 2)
-		resize_all();
-	switch_tab(w.cur);
-}
-
-static void say(int error, const char *fmt, ...) {
+void say(int error, const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
 	vsnprintf(w.line_msg, sizeof(w.line_msg), fmt, ap);
 	va_end(ap);
 	w.line_error = error;
-}
-
-static int dial_terminal(unsigned number) {
-	const char *rt = getenv("XDG_RUNTIME_DIR");
-	struct sockaddr_un a = {.sun_family = AF_UNIX};
-	if (!rt || snprintf(a.sun_path, sizeof(a.sun_path), "%s/frost/%u", rt,
-	                    number) >= (int)sizeof(a.sun_path))
-		return -1;
-	int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
-	if (fd >= 0 && connect(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
-		close(fd);
-		return -1;
-	}
-	return fd;
-}
-
-static int by_number(const void *a, const void *b) {
-	const struct msg_info *x = a, *y = b;
-	return x->number < y->number ? -1 : x->number > y->number;
-}
-
-static int scan_terminals(struct msg_info *out, int max) {
-	const char *rt = getenv("XDG_RUNTIME_DIR");
-	char dir[PATH_MAX];
-	int n = 0;
-	snprintf(dir, sizeof(dir), "%s/frost", rt ? rt : "");
-	DIR *d = rt ? opendir(dir) : NULL;
-	struct dirent *e;
-	while (d && (e = readdir(d)) && n < max) {
-		char *end;
-		unsigned long v = strtoul(e->d_name, &end, 10);
-		if (!*e->d_name || *end || !v || v > 99999)
-			continue;
-		int fd = dial_terminal((unsigned)v);
-		struct timeval tv = {0, 300000};
-		uint32_t type;
-		int got;
-		if (fd < 0)
-			continue;
-		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-		if (msg_send(fd, MSG_QUERY, NULL, 0, -1) == 0 &&
-		    msg_recv(fd, &type, &out[n], sizeof(out[n]), &got) ==
-		        sizeof(out[n]) &&
-		    type == MSG_INFO) {
-			out[n].name[sizeof(out[n].name) - 1] = 0;
-			out[n].title[sizeof(out[n].title) - 1] = 0;
-			n++;
-		}
-		close(fd);
-	}
-	if (d)
-		closedir(d);
-	qsort(out, (size_t)n, sizeof(*out), by_number);
-	return n;
-}
-
-static void list_terminals(void) {
-	static struct msg_info all[256];
-	int n = scan_terminals(all, 256);
-	char out[sizeof(w.line_msg)] = "";
-	size_t o = 0;
-	for (int i = 0; i < n; i++) {
-		int k = snprintf(out + o, sizeof(out) - o, "%s%u%s%s%s", o ? "  " : "",
-		                 all[i].number, all[i].name[0] ? " " : "", all[i].name,
-		                 all[i].attached ? "" : " detached");
-		if (k > 0 && (size_t)k < sizeof(out) - o)
-			o += (size_t)k;
-	}
-	if (o)
-		say(0, "%s", out);
-	else
-		say(0, "no terminals");
-}
-
-static int detach_tab(const char *name) {
-	if (*name) {
-		static struct msg_info all[256];
-		int n = scan_terminals(all, 256);
-		if (strlen(name) >= TERM_NAME_MAX) {
-			say(1, "a name has at most %d letters", TERM_NAME_MAX - 1);
-			return -1;
-		}
-		for (int i = 0; i < n; i++)
-			if (!strcmp(all[i].name, name) && all[i].number != T.number) {
-				say(1, "%s is the name of terminal %u", name, all[i].number);
-				return -1;
-			}
-		msg_send(T.sock, MSG_NAME, name, strlen(name), -1);
-	}
-	msg_send(T.sock, MSG_DETACH, NULL, 0, -1);
-	drop_tab(w.cur, 0);
-	return 0;
-}
-
-static int attach_tab(const char *arg, int number) {
-	unsigned num = number > 0 ? (unsigned)number : 0;
-	if (!num) {
-		static struct msg_info all[256];
-		int n = scan_terminals(all, 256);
-		for (int i = 0; i < n && !num; i++)
-			if (!strcmp(all[i].name, arg))
-				num = all[i].number;
-	}
-	for (int i = 0; i < w.ntabs && num; i++)
-		if (w.tabs[i].number == num) {
-			switch_tab(i);
-			return 0;
-		}
-	int fd = num && w.ntabs < TABS_MAX ? dial_terminal(num) : -1;
-	if (fd < 0) {
-		say(1, "no terminal %s", arg);
-		return -1;
-	}
-	int rows = w.rows > 1 ? w.rows - 1 : w.rows;
-	struct msg_resize rs = {(uint16_t)w.cols, (uint16_t)rows, (uint16_t)w.r.cw,
-	                        (uint16_t)w.r.ch};
-	msg_send(fd, MSG_ATTACH, &rs, sizeof(rs), -1);
-	struct tab *t = &w.tabs[w.ntabs];
-	*t = (struct tab){0};
-	t->sock = fd;
-	t->number = num;
-	w.cur = w.ntabs++;
-	if (w.ntabs == 2)
-		resize_all();
-	switch_tab(w.cur);
-	return 0;
 }
 
 static int set_size(int size) {
@@ -1396,8 +1146,7 @@ static int set_size(int size) {
 	w.r = r;
 	render_theme(&w.r, w.theme);
 	render_fit(&w.r, w.bw, w.bh, &w.cols, &w.rows);
-	resize_all();
-	w.full = 1;
+	relayout();
 	return 0;
 }
 
@@ -1410,23 +1159,24 @@ static void run_line(void) {
 		line_toggle(0);
 		return;
 	case CMD_GOTO:
-		if (c.number > w.ntabs) {
+		if (c.number < 1 || c.number > w.ngroups) {
 			say(1, "no tab %d", c.number);
 			break;
 		}
-		switch_tab(c.number - 1);
+		pane_focus(group_focus(c.number - 1));
 		line_toggle(0);
 		return;
-	case CMD_NEW:
-		if (spawn_term(NULL, T.cwd) < 0) {
+	case CMD_NEW: {
+		char cwd[PATH_MAX];
+		memcpy(cwd, T.cwd, sizeof(cwd));
+		if (w.npanes == PANES_MAX ||
+		    pane_new(group_new(), -1, NULL, cwd, 1) < 0) {
 			say(1, "no room for another tab");
 			break;
 		}
-		if (w.ntabs == 2)
-			resize_all();
-		switch_tab(w.cur);
 		line_toggle(0);
 		return;
+	}
 	case CMD_LS:
 		list_terminals();
 		break;
@@ -1438,12 +1188,12 @@ static void run_line(void) {
 		line_toggle(0);
 		return;
 	case CMD_ATTACH:
-		if (attach_tab(c.arg, c.number) < 0)
+		if (attach_pane(c.arg, c.number) < 0)
 			break;
 		line_toggle(0);
 		return;
 	case CMD_DETACH:
-		if (detach_tab(c.arg) < 0)
+		if (detach_pane(c.arg) < 0)
 			break;
 		line_toggle(0);
 		return;
@@ -1465,134 +1215,24 @@ static int apply_configure(const struct cli *c) {
 		w.full = 1;
 		focus_changed();
 	}
-	if (width == w.bw && height == w.bh && w.ntabs)
+	if (width == w.bw && height == w.bh && w.npanes)
 		return 0;
 	if (make_buffers(width, height) < 0)
 		return -1;
 	render_fit(&w.r, width, height, &w.cols, &w.rows);
 	w.full = 1;
-	if (!w.ntabs)
-		return spawn_term(c->cmd, NULL) < 0 ? -1 : 0;
-	resize_all();
+	if (!w.npanes)
+		return pane_new(group_new(), -1, c->cmd, NULL, 1) < 0 ? -1 : 0;
+	relayout();
 	return 0;
 }
 
-static void cut_copy(char *dst, size_t size, const char *src) {
+void cut_copy(char *dst, size_t size, const char *src) {
 	size_t k = strnlen(src, size - 1);
 	while (k > 0 && src[k] && ((unsigned char)src[k] & 0xC0) == 0x80)
 		k--;
 	memcpy(dst, src, k);
 	dst[k] = 0;
-}
-
-static void take_shm(struct tab *t, int fd) {
-	struct stat st;
-	if (fstat(fd, &st) < 0 || st.st_size < (off_t)SHM_HEAD_SIZE)
-		return;
-	if (t->map)
-		munmap(t->map, t->map_size);
-	t->map_size = (size_t)st.st_size;
-	t->map = mmap(NULL, t->map_size, PROT_READ, MAP_SHARED, fd, 0);
-	if (t->map == MAP_FAILED)
-		t->map = NULL;
-	if (t == &T)
-		w.full = 1;
-}
-
-static void from_term(int i) {
-	struct tab *t = &w.tabs[i];
-	uint32_t type;
-	int fd;
-	ssize_t n = msg_recv(t->sock, &type, w.msg, sizeof(w.msg) - 1, &fd);
-	if (n < 0 || type == 0) {
-		drop_tab(i, 1);
-		return;
-	}
-	int shown = t == &T;
-	switch (type) {
-	case MSG_SHM:
-		if (fd >= 0)
-			take_shm(t, fd);
-		break;
-	case MSG_DAMAGE:
-		if ((size_t)n == sizeof(t->seq)) {
-			memcpy(&t->seq, w.msg, sizeof(t->seq));
-			t->damage = 1;
-			if (shown)
-				set_cursor();
-		}
-		break;
-	case MSG_CLIPBOARD: {
-		char *text = malloc((size_t)n);
-		long len = text ? base64_decode(w.msg, (size_t)n, text) : -1;
-		if (len > 0)
-			set_clipboard(text, (size_t)len);
-		else
-			free(text);
-		break;
-	}
-	case MSG_LINK:
-		w.msg[n] = 0;
-		if (shown && w.link_kind == LINK_OSC8) {
-			cut_copy(w.link_url, sizeof(w.link_url), w.msg);
-			w.full = 1;
-			if (w.link_waiting)
-				open_url(w.link_url);
-			w.link_waiting = 0;
-		}
-		break;
-	case MSG_INFO:
-		if ((size_t)n == sizeof(struct msg_info)) {
-			struct msg_info *in = (struct msg_info *)w.msg;
-			in->name[sizeof(in->name) - 1] = 0;
-			in->title[sizeof(in->title) - 1] = 0;
-			t->number = in->number;
-			snprintf(t->name, sizeof(t->name), "%s", in->name);
-			if (in->title[0])
-				snprintf(t->title, sizeof(t->title), "%s", in->title);
-			w.full |= line_shown();
-		}
-		break;
-	case MSG_CWD: {
-		char host[256] = "", dir[PATH_MAX];
-		w.msg[n] = 0;
-		gethostname(host, sizeof(host) - 1);
-		if (link_cwd(w.msg, host, dir, sizeof(dir)) == 0)
-			memcpy(t->cwd, dir, strlen(dir) + 1);
-		break;
-	}
-	case MSG_BELL:
-	case MSG_NOTIFY:
-		if (!shown) {
-			t->marked = 1;
-			w.full |= line_shown();
-		}
-		break;
-	case MSG_BUSY:
-		say(1, "terminal %u has a window", t->number);
-		w.line_open = 1;
-		drop_tab(i, 0);
-		return;
-	case MSG_TITLE:
-		w.msg[n] = 0;
-		cut_copy(t->title, sizeof(t->title), w.msg);
-		if (shown)
-			show_title();
-		w.full |= line_shown();
-		break;
-	case MSG_EXIT: {
-		int32_t st = 1;
-		if ((size_t)n == sizeof(st))
-			memcpy(&st, w.msg, sizeof(st));
-		if (fd >= 0)
-			close(fd);
-		drop_tab(i,
-		         t->closing || (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : 1);
-		return;
-	}
-	}
-	if (fd >= 0)
-		close(fd);
 }
 
 #ifdef FROST_TEST
@@ -1634,7 +1274,7 @@ static int open_window(const struct cli *c) {
 	    getenv("XCURSOR_THEME"),
 	    size && atoi(size) > 0 ? atoi(size) : CURSOR_SIZE, w.shm);
 	w.cursor_surf = wl_compositor_create_surface(w.comp);
-	w.held = MB_NONE;
+	w.held = w.swallow = MB_NONE;
 	w.last_x = w.last_y = -1;
 	if (w.seat)
 		wl_seat_add_listener(w.seat, &seat_listener, NULL);
@@ -1717,16 +1357,16 @@ static void loop(const struct cli *c) {
 			wl_display_cancel_read(w.dpy);
 			return;
 		}
-		struct pollfd p[6 + TABS_MAX] = {
+		struct pollfd p[6 + PANES_MAX] = {
 		    {wl_display_get_fd(w.dpy), POLLIN, 0},
 		    {-1, POLLIN, 0},
 		    {w.theme ? tdraw_theme_fd(w.theme) : -1, POLLIN, 0},
 		    {w.blink, POLLIN, 0},
 		    {w.rep, POLLIN, 0},
 		    {w.paste_fd, POLLIN, 0}};
-		int nt = w.ntabs;
+		int nt = w.npanes;
 		for (int i = 0; i < nt; i++)
-			p[6 + i] = (struct pollfd){w.tabs[i].sock, POLLIN, 0};
+			p[6 + i] = (struct pollfd){w.panes[i].sock, POLLIN, 0};
 		if (poll(p, (nfds_t)(6 + nt), -1) < 0 && errno != EINTR) {
 			wl_display_cancel_read(w.dpy);
 			perror("poll error");
@@ -1750,8 +1390,8 @@ static void loop(const struct cli *c) {
 		for (int k = 0; k < nt && !w.ended; k++) {
 			if (!(p[6 + k].revents & (POLLIN | POLLHUP | POLLERR)))
 				continue;
-			for (int i = 0; i < w.ntabs; i++)
-				if (w.tabs[i].sock == p[6 + k].fd) {
+			for (int i = 0; i < w.npanes; i++)
+				if (w.panes[i].sock == p[6 + k].fd) {
 					from_term(i);
 					break;
 				}
@@ -1780,8 +1420,8 @@ static void loop(const struct cli *c) {
 }
 
 int win_run(const struct cli *c) {
-	for (int i = 0; i < TABS_MAX; i++)
-		w.tabs[i].sock = -1;
+	for (int i = 0; i < PANES_MAX; i++)
+		w.panes[i].sock = -1;
 	w.paste_fd = -1;
 	w.status = 1;
 	signal(SIGPIPE, SIG_IGN);
@@ -1803,10 +1443,12 @@ int win_run(const struct cli *c) {
 #ifdef FROST_TEST
 	dump();
 #endif
-	for (int i = 0; i < w.ntabs; i++) {
-		close(w.tabs[i].sock);
-		if (w.tabs[i].map)
-			munmap(w.tabs[i].map, w.tabs[i].map_size);
+	for (int i = 0; i < w.npanes; i++) {
+		close(w.panes[i].sock);
+		if (w.panes[i].map)
+			munmap(w.panes[i].map, w.panes[i].map_size);
+		free(w.panes[i].stale[0]);
+		free(w.panes[i].stale[1]);
 	}
 	close_window();
 	if (w.blink >= 0)

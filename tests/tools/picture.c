@@ -143,7 +143,7 @@ static int paint(const char *in, int cols, int rows, const char *out) {
 	if (!c)
 		return 1;
 	render_fit(&r, w, h, &c_, &r_);
-	render_margins(&r, c, &v);
+	tdraw_fill(c, 0, 0, w, h, render_color(&r, &v, COLOR_DEFAULT, 0));
 	for (int y = 0; y < rows; y++)
 		render_row(&r, c, &v, y);
 	render_cursor(&r, c, &v, 1, 1);
@@ -206,7 +206,8 @@ static int line_sample(const char *out) {
 	struct view v = {
 	    s.cols, s.rows, g->cells,  g->map,        s.x,  s.y, 0, 1, CURSOR_BAR,
 	    0,      0,      s.palette, s.palette_set, NULL, 0,   0, 0, 0};
-	render_margins(&r, cv, &v);
+	tdraw_fill(cv, 0, 0, w, ROWS * r.ch,
+	           render_color(&r, &v, COLOR_DEFAULT, 0));
 	for (int y = 0; y < ROWS; y++)
 		render_row(&r, cv, &v, y);
 	render_cursor(&r, cv, &v, 0, 1);

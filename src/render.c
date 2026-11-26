@@ -160,18 +160,8 @@ static size_t utf8(char *p, uint32_t cp) {
 	return 4;
 }
 
-void render_margins(struct render *r, struct tdraw_canvas *c,
-                    const struct view *v) {
-	uint32_t bg = render_color(r, v, COLOR_DEFAULT, 0);
-	int gw = v->cols * r->cw, gh = v->rows * r->ch;
-	if (gw > r->width - r->ox)
-		gw = r->width - r->ox;
-	if (gh > r->height - r->oy)
-		gh = r->height - r->oy;
-	tdraw_fill(c, 0, 0, r->width, r->oy, bg);
-	tdraw_fill(c, 0, r->oy + gh, r->width, r->height - r->oy - gh, bg);
-	tdraw_fill(c, 0, r->oy, r->ox, gh, bg);
-	tdraw_fill(c, r->ox + gw, r->oy, r->width - r->ox - gw, gh, bg);
+static int shown_cols(const struct render *r, const struct view *v) {
+	return r->clip_cols > 0 && r->clip_cols < v->cols ? r->clip_cols : v->cols;
 }
 
 static struct tdraw_font *font_of(const struct render *r,
@@ -245,13 +235,13 @@ static uint32_t back(const struct render *r, const struct view *v,
 void render_row(struct render *r, struct tdraw_canvas *c, const struct view *v,
                 int y) {
 	const struct cell *row = v->cells + (size_t)v->map[y] * v->cols;
-	int py = r->oy + y * r->ch, at = y * v->cols;
+	int py = r->oy + y * r->ch, at = y * v->cols, cols = shown_cols(r, v);
 	uint32_t fg, bg, fg2, bg2;
 
-	for (int x = 0; x < v->cols;) {
+	for (int x = 0; x < cols;) {
 		bg = back(r, v, &row[x], at + x);
 		int k = x + 1;
-		while (k < v->cols) {
+		while (k < cols) {
 			bg2 = back(r, v, &row[k], at + k);
 			if (bg2 != bg)
 				break;
@@ -262,7 +252,7 @@ void render_row(struct render *r, struct tdraw_canvas *c, const struct view *v,
 	}
 
 	char buf[1024];
-	for (int x = 0; x < v->cols;) {
+	for (int x = 0; x < cols;) {
 		const struct cell *cl = &row[x];
 		if (!cl->cp || (cl->attr & (ATTR_WIDE_TAIL | ATTR_HIDDEN))) {
 			x++;
@@ -270,14 +260,16 @@ void render_row(struct render *r, struct tdraw_canvas *c, const struct view *v,
 		}
 		colors(r, v, cl, &fg, &bg);
 		if ((cl->attr & ATTR_WIDE) || cl->comb[0]) {
-			glyph(r, c, cl, r->ox + x * r->cw, py, fg);
-			x += (cl->attr & ATTR_WIDE) ? 2 : 1;
+			int span = (cl->attr & ATTR_WIDE) ? 2 : 1;
+			if (x + span <= cols)
+				glyph(r, c, cl, r->ox + x * r->cw, py, fg);
+			x += span;
 			continue;
 		}
 		struct tdraw_font *f = font_of(r, cl);
 		int start = x;
 		size_t n = 0;
-		while (x < v->cols && n + 4 <= sizeof(buf)) {
+		while (x < cols && n + 4 <= sizeof(buf)) {
 			const struct cell *d = &row[x];
 			if (!d->cp || d->comb[0] ||
 			    (d->attr & (ATTR_WIDE | ATTR_WIDE_TAIL | ATTR_HIDDEN)) ||
@@ -292,12 +284,13 @@ void render_row(struct render *r, struct tdraw_canvas *c, const struct view *v,
 		tdraw_text(c, f, r->ox + start * r->cw, py, buf, n, fg);
 	}
 
-	for (int x = 0; x < v->cols; x++) {
+	for (int x = 0; x < cols; x++) {
 		const struct cell *cl = &row[x];
 		int link = at + x >= v->link_from && at + x < v->link_to;
 		if ((!link &&
 		     !(cl->attr & (ATTR_UL_MASK | ATTR_STRIKE | ATTR_OVERLINE))) ||
-		    (cl->attr & ATTR_WIDE_TAIL))
+		    (cl->attr & ATTR_WIDE_TAIL) ||
+		    ((cl->attr & ATTR_WIDE) && x + 1 >= cols))
 			continue;
 		struct cell u = *cl;
 		if (link && !(u.attr & ATTR_UL_MASK))
@@ -312,7 +305,7 @@ void render_cursor(struct render *r, struct tdraw_canvas *c,
 	if (!v->cursor_visible || (v->cursor_blink && focused && !lit))
 		return;
 	int x = v->x, y = v->y;
-	if (x < 0 || x >= v->cols || y < 0 || y >= v->rows)
+	if (x < 0 || x >= shown_cols(r, v) || y < 0 || y >= v->rows)
 		return;
 	const struct cell *row = v->cells + (size_t)v->map[y] * v->cols;
 	if ((row[x].attr & ATTR_WIDE_TAIL) && x > 0)
