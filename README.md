@@ -18,12 +18,21 @@ when its window detaches or falls. Once its program runs, frost-term locks
 itself in seccomp: its pty, its sockets, its shared memory and the hang-up of
 its program are all it keeps.
 
+## Terminal type and ssh
+
+frost says `TERM=frost`, with its terminfo in `/usr/share/terminfo`. Over ssh,
+the machines marked with `Tag tundra` in `~/.ssh/config` get `frost` and the
+rest `xterm-256color`: `/etc/ssh/ssh_config.d/frost.conf` says so, and only when
+the local `TERM` is `frost`. ssh takes the first `SetEnv` that applies, so a
+host with a `SetEnv` of its own needs `TERM=xterm-256color` in it.
+
 ## Requirements
 
 - libseccomp.
 - wayland-client, wayland-cursor and xkbcommon, and to build, wayland-scanner and
   wayland-protocols. Dead keys take the compose table of the locale, from the
   X11 locale data.
+- tic, of ncurses, to build the terminfo.
 - tundra-libdraw, which paints the screen and reads the fonts and the theme.
   Built checkouts of tundra-libconf, tundra-libtoa and tundra-libdraw next to
   this one, or where `CONF_DEV`, `TOA_DEV` and `DRAW_DEV` say, are used
