@@ -315,6 +315,24 @@ https://tundra.example/b" \
 	"Ctrl + click opens an OSC 8 link and an address written in the line"
 wait_end $links
 
+reader tabs "" "head -c 1"
+chord 29 42 57
+for k in 49 18 17 28; do
+	chord $k
+done
+sleep 0.5
+chord 29 42 57
+chord 2
+chord 28
+sleep 0.3
+chord 45
+sleep 0.3
+check "$(cat "$WORK/tabs")" "x" \
+	"the line opens a tab, and a number goes back to the first"
+chord 125 14
+wait_end $win
+check "$?" 0 "closing the window ends the program of every tab"
+
 FROST_TEST_DUMP=$WORK/back.png $frost --app-id back sh -c \
 	'echo B; for i in $(seq 100); do echo A; done; sleep 1.5' &
 win=$!

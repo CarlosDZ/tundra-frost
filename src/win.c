@@ -1,11 +1,13 @@
 #include "win.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/input-event-codes.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,12 +15,14 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/timerfd.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 
 #include "kbd.h"
+#include "line.h"
 #include "links.h"
 #include "mouse.h"
 #include "paste.h"
@@ -37,6 +41,16 @@
 #define CURSOR_SIZE 24
 #define CLICK_MS 400
 #define PASTE_MAX (16u << 20)
+#define TABS_MAX 32
+
+struct tab {
+	int sock;
+	uint8_t *map;
+	size_t map_size;
+	uint32_t seq;
+	int damage, closing, marked;
+	char title[TERM_TITLE_MAX], name[TERM_NAME_MAX];
+};
 
 struct buffer {
 	struct wl_buffer *wl;
@@ -90,13 +104,13 @@ static struct win {
 	int bw, bh;
 	struct wl_callback *frame;
 
-	int sock, closing, ended, status;
-	pid_t term;
-	uint8_t *map;
-	size_t map_size;
+	struct tab tabs[TABS_MAX];
+	int ntabs, cur, ended, status;
 	int cols, rows;
-	uint32_t seq;
-	int damage, full;
+	int full;
+
+	int line_open, line_error;
+	char line_input[LINE_INPUT_MAX], line_msg[256];
 
 	struct render r;
 	struct tdraw_theme *theme;
@@ -108,6 +122,8 @@ static struct win {
 	uint32_t rep_key;
 	char msg[MSG_MAX];
 } w;
+
+#define T (w.tabs[w.cur])
 
 static void update_hover(void);
 
@@ -158,10 +174,11 @@ static void top_configure(void *data, struct xdg_toplevel *t, int32_t width,
 
 static void top_close(void *data, struct xdg_toplevel *t) {
 	(void)data, (void)t;
-	if (w.sock >= 0 && !w.closing) {
-		msg_send(w.sock, MSG_CLOSE, NULL, 0, -1);
-		w.closing = 1;
-	}
+	for (int i = 0; i < w.ntabs; i++)
+		if (!w.tabs[i].closing) {
+			msg_send(w.tabs[i].sock, MSG_CLOSE, NULL, 0, -1);
+			w.tabs[i].closing = 1;
+		}
 }
 
 static void top_bounds(void *data, struct xdg_toplevel *t, int32_t width,
@@ -246,17 +263,17 @@ static int make_buffers(int width, int height) {
 }
 
 static int view_of(struct view *v) {
-	if (!w.map)
+	if (!T.map)
 		return -1;
-	const struct shm_head *h = (const struct shm_head *)w.map;
+	const struct shm_head *h = (const struct shm_head *)T.map;
 	if (h->magic != SHM_MAGIC || h->version != SHM_VERSION || !h->cols ||
-	    !h->rows || w.map_size < shm_layout(h->cols, h->rows).size)
+	    !h->rows || T.map_size < shm_layout(h->cols, h->rows).size)
 		return -1;
 	struct shm_layout l = shm_layout(h->cols, h->rows);
 	*v = (struct view){h->cols,
 	                   h->rows,
-	                   (const struct cell *)(w.map + l.cells),
-	                   (const uint16_t *)(w.map + l.map),
+	                   (const struct cell *)(T.map + l.cells),
+	                   (const uint16_t *)(T.map + l.map),
 	                   h->x,
 	                   h->y,
 	                   h->pending,
@@ -266,7 +283,7 @@ static int view_of(struct view *v) {
 	                   h->reverse,
 	                   h->palette,
 	                   h->palette_set,
-	                   w.map + l.lines,
+	                   T.map + l.lines,
 	                   0,
 	                   0,
 	                   0,
@@ -280,13 +297,13 @@ static int view_of(struct view *v) {
 }
 
 static void keep_selection(struct view *v, const uint8_t *dirty) {
-	const struct shm_head *h = (const struct shm_head *)w.map;
+	const struct shm_head *h = (const struct shm_head *)T.map;
 	if (!w.sel_on || w.selecting)
 		return;
 	int gone = h->offset != w.sel_offset;
 	for (int y = v->sel_from / v->cols; y <= (v->sel_to - 1) / v->cols && !gone;
 	     y++)
-		gone = w.damage && y < v->rows && dirty[y];
+		gone = T.damage && y < v->rows && dirty[y];
 	if (gone) {
 		w.sel_on = 0;
 		v->sel_from = v->sel_to = 0;
@@ -306,9 +323,47 @@ static void blink_arm(int on) {
 static void frame_done(void *data, struct wl_callback *cb, uint32_t time);
 static const struct wl_callback_listener frame_listener = {frame_done};
 
+static int line_shown(void);
+
+static uint32_t theme_cell(const char *name, uint32_t fallback) {
+	uint32_t c =
+	    w.theme ? tdraw_theme_color(w.theme, name, fallback) : fallback;
+	return COLOR_RGB(c >> 16 & 0xFF, c >> 8 & 0xFF, c & 0xFF);
+}
+
+static void paint_line(struct buffer *b) {
+	struct line_tab tabs[TABS_MAX];
+	for (int i = 0; i < w.ntabs; i++)
+		tabs[i] = (struct line_tab){w.tabs[i].name[0] ? w.tabs[i].name
+		                                              : w.tabs[i].title,
+		                            i == w.cur, w.tabs[i].marked};
+	struct line_colors lc = {
+	    theme_cell("frost.line", 0x1f2529), theme_cell("text", 0xccd2d6),
+	    theme_cell("dim", 0x889196), theme_cell("alert", 0xff1712)};
+	struct cell *row = calloc((size_t)w.cols, sizeof(*row));
+	if (!row)
+		return;
+	int cx;
+	line_cells(row, w.cols, tabs, w.ntabs, w.line_open, w.line_input,
+	           w.line_msg, w.line_error, &lc, &cx);
+	uint16_t map = 0;
+	struct view lv = {w.cols, 1,    row,     &map,       cx < 0 ? 0 : cx,
+	                  0,      0,    cx >= 0, CURSOR_BAR, 0,
+	                  0,      NULL, NULL,    NULL,       0,
+	                  0,      0,    0};
+	int oy = w.r.oy;
+	w.r.oy += (w.rows - 1) * w.r.ch;
+	render_row(&w.r, b->cv, &lv, 0);
+	render_cursor(&w.r, b->cv, &lv, 1, 1);
+	w.r.oy = oy;
+	free(row);
+	wl_surface_damage_buffer(w.surf, 0, oy + (w.rows - 1) * w.r.ch, w.bw,
+	                         w.r.ch);
+}
+
 static void draw(void) {
 	struct view v;
-	if (w.frame || !(w.damage || w.full || w.tick) || view_of(&v) < 0)
+	if (w.frame || !(T.damage || w.full || w.tick) || view_of(&v) < 0)
 		return;
 	struct buffer *b = !w.buf[0].busy   ? &w.buf[0]
 	                   : !w.buf[1].busy ? &w.buf[1]
@@ -316,12 +371,13 @@ static void draw(void) {
 	if (!b)
 		return;
 	struct buffer *other = b == &w.buf[0] ? &w.buf[1] : &w.buf[0];
-	const uint8_t *dirty = w.map + shm_layout(v.cols, v.rows).dirty;
-	int rows = v.rows < w.rows ? v.rows : w.rows;
+	const uint8_t *dirty = T.map + shm_layout(v.cols, v.rows).dirty;
+	int below = line_shown() ? w.rows - 1 : w.rows;
+	int rows = v.rows < below ? v.rows : below;
 	keep_selection(&v, dirty);
 
 	int blinks = w.focused && v.cursor_visible && v.cursor_blink;
-	if (blinks != w.blinking || (blinks && w.damage && v.y != w.cur_y))
+	if (blinks != w.blinking || (blinks && T.damage && v.y != w.cur_y))
 		blink_arm(blinks);
 	if (w.full) {
 		render_margins(&w.r, b->cv, &v);
@@ -333,7 +389,7 @@ static void draw(void) {
 		b->stale[v.y] = 1;
 	int top = rows, bottom = -1;
 	for (int y = 0; y < rows; y++) {
-		if (!b->stale[y] && !(w.damage && dirty[y]))
+		if (!b->stale[y] && !(T.damage && dirty[y]))
 			continue;
 		render_row(&w.r, b->cv, &v, y);
 		b->stale[y] = 0;
@@ -341,8 +397,11 @@ static void draw(void) {
 		top = y < top ? y : top;
 		bottom = y;
 	}
-	render_cursor(&w.r, b->cv, &v, w.focused, w.lit);
+	if (v.y < below)
+		render_cursor(&w.r, b->cv, &v, w.focused && !w.line_open, w.lit);
 	w.cur_y = v.y, w.cur_drawn = 1, w.tick = 0;
+	if (line_shown())
+		paint_line(b);
 	if (w.full) {
 		w.full = 0;
 		memset(other->stale, 1, (size_t)w.bh);
@@ -351,9 +410,9 @@ static void draw(void) {
 		wl_surface_damage_buffer(w.surf, 0, w.r.oy + top * w.r.ch, w.bw,
 		                         (bottom - top + 1) * w.r.ch);
 	}
-	if (w.damage) {
-		msg_send(w.sock, MSG_ACK, &w.seq, sizeof(w.seq), -1);
-		w.damage = 0;
+	if (T.damage) {
+		msg_send(T.sock, MSG_ACK, &T.seq, sizeof(T.seq), -1);
+		T.damage = 0;
 	}
 	wl_surface_attach(w.surf, b->wl, 0, 0);
 	b->busy = 1;
@@ -370,13 +429,13 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time) {
 }
 
 static const struct shm_head *head(void) {
-	const struct shm_head *h = (const struct shm_head *)w.map;
+	const struct shm_head *h = (const struct shm_head *)T.map;
 	return h && h->magic == SHM_MAGIC && h->version == SHM_VERSION ? h : NULL;
 }
 
 static void input(const char *bytes, size_t n) {
-	if (n && w.sock >= 0)
-		msg_send(w.sock, MSG_INPUT, bytes, n, -1);
+	if (n && T.sock >= 0)
+		msg_send(T.sock, MSG_INPUT, bytes, n, -1);
 }
 
 static void repeat_arm(uint32_t key) {
@@ -392,8 +451,8 @@ static void repeat_arm(uint32_t key) {
 }
 
 static void scroll_history(int32_t rows) {
-	if (w.sock >= 0)
-		msg_send(w.sock, MSG_SCROLL, &rows, sizeof(rows), -1);
+	if (T.sock >= 0)
+		msg_send(T.sock, MSG_SCROLL, &rows, sizeof(rows), -1);
 }
 
 #ifdef FROST_TEST
@@ -612,6 +671,43 @@ static int shortcut(const struct key *k) {
 	return c == 'c' || c == 'v' || c == ' ' ? (int)c : 0;
 }
 
+static void run_line(void);
+
+static void line_toggle(int open) {
+	w.line_open = open;
+	w.line_input[0] = w.line_msg[0] = 0;
+	w.line_error = 0;
+	w.full = 1;
+}
+
+static void line_key(const struct key *k) {
+	size_t len = strlen(w.line_input);
+	if (k->type == KEY_RELEASE)
+		return;
+	if (k->code == FKEY_ESCAPE) {
+		line_toggle(0);
+		return;
+	}
+	if (k->code == FKEY_ENTER || k->code == FKEY_KP_ENTER) {
+		run_line();
+		return;
+	}
+	if (k->code == FKEY_BACKSPACE) {
+		while (len > 0 && ((unsigned char)w.line_input[len - 1] & 0xC0) == 0x80)
+			len--;
+		w.line_input[len > 0 ? len - 1 : 0] = 0;
+	} else if (k->text[0] && (unsigned char)k->text[0] >= 0x20 &&
+	           k->text[0] != 0x7F &&
+	           !(k->mods & (MOD_CTRL | MOD_ALT | MOD_SUPER))) {
+		if (len + strlen(k->text) < sizeof(w.line_input))
+			strcat(w.line_input, k->text);
+	} else {
+		return;
+	}
+	w.line_msg[0] = 0;
+	w.full = 1;
+}
+
 static void on_key(uint32_t evdev, int type) {
 	struct key k;
 	if (kbd_key(&w.kbd, evdev, type, &k) < 0)
@@ -621,8 +717,14 @@ static void on_key(uint32_t evdev, int type) {
 		copy();
 	else if (sc && type == KEY_PRESS && sc == 'v')
 		paste();
+	else if (sc && type == KEY_PRESS && sc == ' ')
+		line_toggle(!w.line_open);
 	if (sc)
 		return;
+	if (w.line_open) {
+		line_key(&k);
+		return;
+	}
 	const struct shm_head *h = head();
 	struct key_modes m = {0, 0, 0};
 	if (h)
@@ -805,9 +907,9 @@ static void open_url(const char *url) {
 static void open_link(void) {
 	if (w.link_kind == LINK_BARE) {
 		open_url(w.link_url);
-	} else if (w.link_kind == LINK_OSC8 && w.sock >= 0) {
+	} else if (w.link_kind == LINK_OSC8 && T.sock >= 0) {
 		uint16_t id = (uint16_t)w.link_id;
-		msg_send(w.sock, MSG_LINK_ASK, &id, sizeof(id), -1);
+		msg_send(T.sock, MSG_LINK_ASK, &id, sizeof(id), -1);
 	}
 }
 
@@ -1035,43 +1137,225 @@ static const char *term_path(void) {
 	return TUNDRA_FROST_TERM;
 }
 
-static int spawn_term(const struct cli *c) {
+static int term_rows(void) {
+	return w.ntabs >= 2 && w.rows > 1 ? w.rows - 1 : w.rows;
+}
+
+static int line_shown(void) { return w.ntabs >= 2 || w.line_open; }
+
+static int spawn_term(char **cmd) {
+	if (w.ntabs == TABS_MAX)
+		return -1;
 	int sv[2];
 	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sv) < 0) {
 		perror("socketpair error");
 		return -1;
 	}
 	const char *path = term_path();
-	w.term = fork();
-	if (w.term < 0) {
+	int rows = w.ntabs >= 1 && w.rows > 1 ? w.rows - 1 : w.rows;
+	pid_t pid = fork();
+	if (pid < 0) {
 		perror("fork error");
 		close(sv[0]);
 		close(sv[1]);
 		return -1;
 	}
-	if (w.term == 0) {
+	if (pid == 0) {
 		if (sv[1] == 3 ? fcntl(3, F_SETFD, 0) < 0 : dup2(sv[1], 3) < 0)
 			_exit(127);
-		char cols[16], rows[16];
-		snprintf(cols, sizeof(cols), "%d", w.cols);
-		snprintf(rows, sizeof(rows), "%d", w.rows);
+		char cols_s[16], rows_s[16];
+		snprintf(cols_s, sizeof(cols_s), "%d", w.cols);
+		snprintf(rows_s, sizeof(rows_s), "%d", rows);
 		int n = 0;
-		while (c->cmd && c->cmd[n])
+		while (cmd && cmd[n])
 			n++;
 		char **argv = calloc((size_t)n + 5, sizeof(*argv));
 		if (!argv)
 			_exit(127);
 		argv[0] = (char *)path, argv[1] = "3";
-		argv[2] = cols, argv[3] = rows;
+		argv[2] = cols_s, argv[3] = rows_s;
 		for (int i = 0; i < n; i++)
-			argv[4 + i] = c->cmd[i];
+			argv[4 + i] = cmd[i];
 		execv(path, argv);
 		fprintf(stderr, "frost: cannot run %s\n", path);
 		_exit(127);
 	}
 	close(sv[1]);
-	w.sock = sv[0];
+	struct tab *t = &w.tabs[w.ntabs];
+	*t = (struct tab){0};
+	t->sock = sv[0];
+	snprintf(t->title, sizeof(t->title), "%s",
+	         cmd && cmd[0] ? cmd[0] : "shell");
+	w.cur = w.ntabs++;
+	return w.cur;
+}
+
+static void resize_all(void) {
+	struct msg_resize rs = {(uint16_t)w.cols, (uint16_t)term_rows(),
+	                        (uint16_t)w.r.cw, (uint16_t)w.r.ch};
+	for (int i = 0; i < w.ntabs; i++)
+		msg_send(w.tabs[i].sock, MSG_RESIZE, &rs, sizeof(rs), -1);
+}
+
+static void show_title(void) {
+	if (w.ntabs)
+		xdg_toplevel_set_title(w.top, T.title[0] ? T.title : "frost");
+}
+
+static void switch_tab(int i) {
+	if (i < 0 || i >= w.ntabs)
+		return;
+	w.cur = i;
+	T.marked = 0;
+	w.sel_on = w.selecting = 0;
+	w.link_kind = LINK_NONE;
+	w.full = 1;
+	show_title();
+}
+
+static void drop_tab(int i, int status) {
+	struct tab *t = &w.tabs[i];
+	close(t->sock);
+	if (t->map)
+		munmap(t->map, t->map_size);
+	int was = w.ntabs;
+	memmove(&w.tabs[i], &w.tabs[i + 1], (size_t)(w.ntabs - i - 1) * sizeof(*t));
+	w.ntabs--;
+	w.tabs[w.ntabs] = (struct tab){.sock = -1};
+	if (!w.ntabs) {
+		w.status = status;
+		w.ended = 1;
+		return;
+	}
+	if (w.cur > i || w.cur == w.ntabs)
+		w.cur--;
+	if (was == 2)
+		resize_all();
+	switch_tab(w.cur);
+}
+
+static void say(int error, const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(w.line_msg, sizeof(w.line_msg), fmt, ap);
+	va_end(ap);
+	w.line_error = error;
+}
+
+static int by_number(const void *a, const void *b) {
+	return (int)(*(const unsigned *)a - *(const unsigned *)b);
+}
+
+static void list_terminals(void) {
+	const char *rt = getenv("XDG_RUNTIME_DIR");
+	char dir[PATH_MAX];
+	unsigned nums[256];
+	int n = 0;
+	snprintf(dir, sizeof(dir), "%s/frost", rt ? rt : "");
+	DIR *d = rt ? opendir(dir) : NULL;
+	struct dirent *e;
+	while (d && (e = readdir(d)) && n < 256) {
+		char *end;
+		unsigned long v = strtoul(e->d_name, &end, 10);
+		if (*e->d_name && !*end && v > 0 && v < 100000)
+			nums[n++] = (unsigned)v;
+	}
+	if (d)
+		closedir(d);
+	qsort(nums, (size_t)n, sizeof(nums[0]), by_number);
+	char out[sizeof(w.line_msg)] = "";
+	size_t o = 0;
+	for (int i = 0; i < n; i++) {
+		struct sockaddr_un a = {.sun_family = AF_UNIX};
+		if (snprintf(a.sun_path, sizeof(a.sun_path), "%s/%u", dir, nums[i]) >=
+		    (int)sizeof(a.sun_path))
+			continue;
+		int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+		struct timeval tv = {0, 300000};
+		struct msg_info in;
+		uint32_t type;
+		int got;
+		if (fd < 0)
+			continue;
+		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+		if (connect(fd, (struct sockaddr *)&a, sizeof(a)) == 0 &&
+		    msg_send(fd, MSG_QUERY, NULL, 0, -1) == 0 &&
+		    msg_recv(fd, &type, &in, sizeof(in), &got) == sizeof(in) &&
+		    type == MSG_INFO) {
+			in.name[sizeof(in.name) - 1] = 0;
+			const char *where = in.attached ? "" : " detached";
+			int w2 =
+			    snprintf(out + o, sizeof(out) - o, "%s%u%s%s%s", o ? "  " : "",
+			             in.number, in.name[0] ? " " : "", in.name, where);
+			if (w2 > 0 && (size_t)w2 < sizeof(out) - o)
+				o += (size_t)w2;
+		}
+		close(fd);
+	}
+	if (o)
+		say(0, "%s", out);
+	else
+		say(0, "no terminals");
+}
+
+static int set_size(int size) {
+	struct render r;
+	if (size < 6 || size > 128 || render_init(&r, size) < 0)
+		return -1;
+	render_free(&w.r);
+	w.r = r;
+	render_theme(&w.r, w.theme);
+	render_fit(&w.r, w.bw, w.bh, &w.cols, &w.rows);
+	resize_all();
+	w.full = 1;
 	return 0;
+}
+
+static void run_line(void) {
+	struct line_command c;
+	line_parse(w.line_input, &c);
+	w.line_input[0] = 0;
+	switch (c.cmd) {
+	case CMD_NONE:
+		line_toggle(0);
+		return;
+	case CMD_GOTO:
+		if (c.number > w.ntabs) {
+			say(1, "no tab %d", c.number);
+			break;
+		}
+		switch_tab(c.number - 1);
+		line_toggle(0);
+		return;
+	case CMD_NEW:
+		if (spawn_term(NULL) < 0) {
+			say(1, "no room for another tab");
+			break;
+		}
+		if (w.ntabs == 2)
+			resize_all();
+		switch_tab(w.cur);
+		line_toggle(0);
+		return;
+	case CMD_LS:
+		list_terminals();
+		break;
+	case CMD_SIZE:
+		if (set_size(c.number) < 0) {
+			say(1, "no mono font at size %d", c.number);
+			break;
+		}
+		line_toggle(0);
+		return;
+	case CMD_ATTACH:
+	case CMD_DETACH:
+		say(1, "attach and detach are not here yet");
+		break;
+	case CMD_BAD:
+		say(1, "orders: N, goto N, new, ls, size N, attach, detach");
+		break;
+	}
+	w.full = 1;
 }
 
 static int apply_configure(const struct cli *c) {
@@ -1085,51 +1369,61 @@ static int apply_configure(const struct cli *c) {
 		w.full = 1;
 		focus_changed();
 	}
-	if (width == w.bw && height == w.bh && w.sock >= 0)
+	if (width == w.bw && height == w.bh && w.ntabs)
 		return 0;
 	if (make_buffers(width, height) < 0)
 		return -1;
 	render_fit(&w.r, width, height, &w.cols, &w.rows);
 	w.full = 1;
-	if (w.sock < 0)
-		return spawn_term(c);
-	struct msg_resize rs = {(uint16_t)w.cols, (uint16_t)w.rows,
-	                        (uint16_t)w.r.cw, (uint16_t)w.r.ch};
-	msg_send(w.sock, MSG_RESIZE, &rs, sizeof(rs), -1);
+	if (!w.ntabs)
+		return spawn_term(c->cmd) < 0 ? -1 : 0;
+	resize_all();
 	return 0;
 }
 
-static void take_shm(int fd) {
+static void cut_copy(char *dst, size_t size, const char *src) {
+	size_t k = strnlen(src, size - 1);
+	while (k > 0 && src[k] && ((unsigned char)src[k] & 0xC0) == 0x80)
+		k--;
+	memcpy(dst, src, k);
+	dst[k] = 0;
+}
+
+static void take_shm(struct tab *t, int fd) {
 	struct stat st;
 	if (fstat(fd, &st) < 0 || st.st_size < (off_t)SHM_HEAD_SIZE)
 		return;
-	if (w.map)
-		munmap(w.map, w.map_size);
-	w.map_size = (size_t)st.st_size;
-	w.map = mmap(NULL, w.map_size, PROT_READ, MAP_SHARED, fd, 0);
-	if (w.map == MAP_FAILED)
-		w.map = NULL;
-	w.full = 1;
+	if (t->map)
+		munmap(t->map, t->map_size);
+	t->map_size = (size_t)st.st_size;
+	t->map = mmap(NULL, t->map_size, PROT_READ, MAP_SHARED, fd, 0);
+	if (t->map == MAP_FAILED)
+		t->map = NULL;
+	if (t == &T)
+		w.full = 1;
 }
 
-static void from_term(void) {
+static void from_term(int i) {
+	struct tab *t = &w.tabs[i];
 	uint32_t type;
 	int fd;
-	ssize_t n = msg_recv(w.sock, &type, w.msg, sizeof(w.msg) - 1, &fd);
+	ssize_t n = msg_recv(t->sock, &type, w.msg, sizeof(w.msg) - 1, &fd);
 	if (n < 0 || type == 0) {
-		w.ended = 1;
+		drop_tab(i, 1);
 		return;
 	}
+	int shown = t == &T;
 	switch (type) {
 	case MSG_SHM:
 		if (fd >= 0)
-			take_shm(fd);
+			take_shm(t, fd);
 		break;
 	case MSG_DAMAGE:
-		if ((size_t)n == sizeof(w.seq)) {
-			memcpy(&w.seq, w.msg, sizeof(w.seq));
-			w.damage = 1;
-			set_cursor();
+		if ((size_t)n == sizeof(t->seq)) {
+			memcpy(&t->seq, w.msg, sizeof(t->seq));
+			t->damage = 1;
+			if (shown)
+				set_cursor();
 		}
 		break;
 	case MSG_CLIPBOARD: {
@@ -1145,19 +1439,29 @@ static void from_term(void) {
 		w.msg[n] = 0;
 		open_url(w.msg);
 		break;
+	case MSG_INFO:
+		if ((size_t)n == sizeof(struct msg_info)) {
+			struct msg_info *in = (struct msg_info *)w.msg;
+			in->name[sizeof(in->name) - 1] = 0;
+			snprintf(t->name, sizeof(t->name), "%s", in->name);
+		}
+		break;
 	case MSG_TITLE:
 		w.msg[n] = 0;
-		xdg_toplevel_set_title(w.top, w.msg);
+		cut_copy(t->title, sizeof(t->title), w.msg);
+		if (shown)
+			show_title();
+		w.full |= line_shown();
 		break;
 	case MSG_EXIT: {
-		int32_t st;
-		if ((size_t)n == sizeof(st)) {
+		int32_t st = 1;
+		if ((size_t)n == sizeof(st))
 			memcpy(&st, w.msg, sizeof(st));
-			w.status =
-			    w.closing || (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : 1;
-		}
-		w.ended = 1;
-		break;
+		if (fd >= 0)
+			close(fd);
+		drop_tab(i,
+		         t->closing || (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : 1);
+		return;
 	}
 	}
 	if (fd >= 0)
@@ -1286,14 +1590,17 @@ static void loop(const struct cli *c) {
 			wl_display_cancel_read(w.dpy);
 			return;
 		}
-		struct pollfd p[6] = {
+		struct pollfd p[6 + TABS_MAX] = {
 		    {wl_display_get_fd(w.dpy), POLLIN, 0},
-		    {w.sock, POLLIN, 0},
+		    {-1, POLLIN, 0},
 		    {w.theme ? tdraw_theme_fd(w.theme) : -1, POLLIN, 0},
 		    {w.blink, POLLIN, 0},
 		    {w.rep, POLLIN, 0},
 		    {w.paste_fd, POLLIN, 0}};
-		if (poll(p, 6, -1) < 0 && errno != EINTR) {
+		int nt = w.ntabs;
+		for (int i = 0; i < nt; i++)
+			p[6 + i] = (struct pollfd){w.tabs[i].sock, POLLIN, 0};
+		if (poll(p, (nfds_t)(6 + nt), -1) < 0 && errno != EINTR) {
 			wl_display_cancel_read(w.dpy);
 			perror("poll error");
 			return;
@@ -1313,8 +1620,17 @@ static void loop(const struct cli *c) {
 			if (apply_configure(c) < 0)
 				return;
 		}
-		if (w.sock >= 0 && (p[1].revents & (POLLIN | POLLHUP | POLLERR)))
-			from_term();
+		for (int k = 0; k < nt && !w.ended; k++) {
+			if (!(p[6 + k].revents & (POLLIN | POLLHUP | POLLERR)))
+				continue;
+			for (int i = 0; i < w.ntabs; i++)
+				if (w.tabs[i].sock == p[6 + k].fd) {
+					from_term(i);
+					break;
+				}
+		}
+		while (waitpid(-1, NULL, WNOHANG) > 0)
+			;
 		if ((p[2].revents & POLLIN) && tdraw_theme_load(w.theme, &err) == 1) {
 			render_theme(&w.r, w.theme);
 			w.full = 1;
@@ -1337,7 +1653,8 @@ static void loop(const struct cli *c) {
 }
 
 int win_run(const struct cli *c) {
-	w.sock = -1;
+	for (int i = 0; i < TABS_MAX; i++)
+		w.tabs[i].sock = -1;
 	w.paste_fd = -1;
 	w.status = 1;
 	signal(SIGPIPE, SIG_IGN);
@@ -1359,12 +1676,11 @@ int win_run(const struct cli *c) {
 #ifdef FROST_TEST
 	dump();
 #endif
-	if (w.sock >= 0)
-		close(w.sock);
-	if (w.term > 0)
-		waitpid(w.term, NULL, WNOHANG);
-	if (w.map)
-		munmap(w.map, w.map_size);
+	for (int i = 0; i < w.ntabs; i++) {
+		close(w.tabs[i].sock);
+		if (w.tabs[i].map)
+			munmap(w.tabs[i].map, w.tabs[i].map_size);
+	}
 	close_window();
 	if (w.blink >= 0)
 		close(w.blink);
