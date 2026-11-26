@@ -19,6 +19,7 @@ struct view {
 	const uint8_t *palette_set;
 	const uint8_t *lines;
 	int sel_from, sel_to;
+	int link_from, link_to;
 };
 
 struct render {

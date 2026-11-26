@@ -294,11 +294,16 @@ void render_row(struct render *r, struct tdraw_canvas *c, const struct view *v,
 
 	for (int x = 0; x < v->cols; x++) {
 		const struct cell *cl = &row[x];
-		if (!(cl->attr & (ATTR_UL_MASK | ATTR_STRIKE | ATTR_OVERLINE)) ||
+		int link = at + x >= v->link_from && at + x < v->link_to;
+		if ((!link &&
+		     !(cl->attr & (ATTR_UL_MASK | ATTR_STRIKE | ATTR_OVERLINE))) ||
 		    (cl->attr & ATTR_WIDE_TAIL))
 			continue;
+		struct cell u = *cl;
+		if (link && !(u.attr & ATTR_UL_MASK))
+			u.attr |= UL_SINGLE << ATTR_UL_SHIFT, u.ul = 0;
 		colors(r, v, cl, &fg, &bg);
-		decorate(r, c, cl, r->ox + x * r->cw, py, fg, v);
+		decorate(r, c, &u, r->ox + x * r->cw, py, fg, v);
 	}
 }
 

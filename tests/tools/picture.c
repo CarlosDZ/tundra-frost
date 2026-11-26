@@ -117,11 +117,24 @@ static int paint(const char *in, int cols, int rows, const char *out) {
 	scr_feed(&s, data, len);
 	free(data);
 	struct grid *g = &s.grid[s.alt];
-	struct view v = {
-	    s.cols,    s.rows,    g->cells,         g->map,         s.x,
-	    s.y,       s.pending, s.cursor_visible, s.cursor_shape, s.cursor_blink,
-	    s.reverse, s.palette, s.palette_set,    NULL,           0,
-	    0};
+	struct view v = {s.cols,
+	                 s.rows,
+	                 g->cells,
+	                 g->map,
+	                 s.x,
+	                 s.y,
+	                 s.pending,
+	                 s.cursor_visible,
+	                 s.cursor_shape,
+	                 s.cursor_blink,
+	                 s.reverse,
+	                 s.palette,
+	                 s.palette_set,
+	                 NULL,
+	                 0,
+	                 0,
+	                 0,
+	                 0};
 
 	int w = cols * r.cw, h = rows * r.ch, c_, r_;
 	uint32_t *px = calloc((size_t)w * (size_t)h, 4);

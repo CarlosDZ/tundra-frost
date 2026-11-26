@@ -391,6 +391,16 @@ static void from_window(void) {
 			t.name[n] = 0;
 		}
 		break;
+	case MSG_LINK_ASK: {
+		uint16_t id;
+		if ((size_t)n != sizeof(id))
+			break;
+		memcpy(&id, t.buf, sizeof(id));
+		if (id >= 1 && id <= t.scr.nlinks)
+			to_window(MSG_LINK, t.scr.links[id - 1],
+			          strlen(t.scr.links[id - 1]));
+		break;
+	}
 	case MSG_SCROLL: {
 		int32_t d;
 		if ((size_t)n != sizeof(d) || t.scr.alt)

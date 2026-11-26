@@ -296,6 +296,25 @@ check "$(hex "$WORK/oscb")" \
 	"OSC 52 writes the clipboard, and a pasted ESC [ 201 ~ does not end the paste"
 wait_end $osc
 
+printf '#!/bin/sh\nprintf "%%s\\n" "$1" >>"%s/opened"\n' "$WORK" >"$WORK/browser"
+chmod +x "$WORK/browser"
+BROWSER=$WORK/browser $frost --app-id links sh -c \
+	'printf "\033]8;;https://tundra.example/o\007enlace\033]8;;\007 y https://tundra.example/b.\n"; sleep 3' &
+links=$!
+wait_window links
+sleep 0.3
+for cell in 2 14; do
+	point links $cell 0
+	"$ask" key 29 down >/dev/null
+	click
+	"$ask" key 29 up >/dev/null
+done
+sleep 0.5
+check "$(cat "$WORK/opened" 2>/dev/null)" "https://tundra.example/o
+https://tundra.example/b" \
+	"Ctrl + click opens an OSC 8 link and an address written in the line"
+wait_end $links
+
 FROST_TEST_DUMP=$WORK/back.png $frost --app-id back sh -c \
 	'echo B; for i in $(seq 100); do echo A; done; sleep 1.5' &
 win=$!

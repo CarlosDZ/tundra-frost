@@ -64,11 +64,24 @@ static void start(const char *seq) {
 	scr_init(&s, 4, 2);
 	scr_feed(&s, (const uint8_t *)seq, strlen(seq));
 	struct grid *g = &s.grid[s.alt];
-	v = (struct view){
-	    s.cols,    s.rows,    g->cells,         g->map,         s.x,
-	    s.y,       s.pending, s.cursor_visible, s.cursor_shape, s.cursor_blink,
-	    s.reverse, s.palette, s.palette_set,    NULL,           0,
-	    0};
+	v = (struct view){s.cols,
+	                  s.rows,
+	                  g->cells,
+	                  g->map,
+	                  s.x,
+	                  s.y,
+	                  s.pending,
+	                  s.cursor_visible,
+	                  s.cursor_shape,
+	                  s.cursor_blink,
+	                  s.reverse,
+	                  s.palette,
+	                  s.palette_set,
+	                  NULL,
+	                  0,
+	                  0,
+	                  0,
+	                  0};
 	memset(px, 0, sizeof(px));
 }
 

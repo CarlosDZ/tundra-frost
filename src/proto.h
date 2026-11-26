@@ -15,6 +15,7 @@ enum msg_type {
 	MSG_ATTACH,
 	MSG_QUERY,
 	MSG_SCROLL,
+	MSG_LINK_ASK,
 
 	MSG_SHM = 32,
 	MSG_DAMAGE,
@@ -26,6 +27,7 @@ enum msg_type {
 	MSG_EXIT,
 	MSG_INFO,
 	MSG_BUSY,
+	MSG_LINK,
 };
 
 #define TERM_NAME_MAX 32

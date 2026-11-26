@@ -19,6 +19,7 @@
 #include <wayland-cursor.h>
 
 #include "kbd.h"
+#include "links.h"
 #include "mouse.h"
 #include "paste.h"
 #include "proto.h"
@@ -79,6 +80,9 @@ static struct win {
 	size_t clip_len, paste_len, paste_cap;
 	int paste_fd;
 
+	int link_kind, link_from, link_to, link_id, link_click;
+	char link_url[LINK_MAX];
+
 	int next_w, next_h, next_focus, configured, focused;
 	struct buffer buf[2], *shown;
 	void *pool;
@@ -104,6 +108,8 @@ static struct win {
 	uint32_t rep_key;
 	char msg[MSG_MAX];
 } w;
+
+static void update_hover(void);
 
 static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
                             const char *iface, uint32_t version) {
@@ -262,10 +268,14 @@ static int view_of(struct view *v) {
 	                   h->palette_set,
 	                   w.map + l.lines,
 	                   0,
+	                   0,
+	                   0,
 	                   0};
 	if (w.sel_on)
 		select_span(v, w.sel_anchor, w.sel_head, w.sel_mode, &v->sel_from,
 		            &v->sel_to);
+	if (w.link_kind)
+		v->link_from = w.link_from, v->link_to = w.link_to;
 	return 0;
 }
 
@@ -667,6 +677,7 @@ static void kb_modifiers(void *data, struct wl_keyboard *kb, uint32_t serial,
                          uint32_t group) {
 	(void)data, (void)kb, (void)serial;
 	kbd_modifiers(&w.kbd, depressed, latched, locked, group);
+	update_hover();
 }
 
 static void kb_repeat_info(void *data, struct wl_keyboard *kb, int32_t rate,
@@ -680,14 +691,18 @@ static const struct wl_keyboard_listener keyboard_listener = {
 
 static void set_cursor(void) {
 	const struct shm_head *h = head();
-	const char *name = h && h->mouse ? "default" : "text";
+	const char *name = w.link_kind     ? "pointer"
+	                   : h && h->mouse ? "default"
+	                                   : "text";
 	if (!w.pointer || !w.cursor_theme || !w.enter_serial ||
 	    name == w.cursor_now)
 		return;
+	const char *old = w.link_kind     ? "hand2"
+	                  : h && h->mouse ? "left_ptr"
+	                                  : "xterm";
 	struct wl_cursor *c = wl_cursor_theme_get_cursor(w.cursor_theme, name);
 	if (!c)
-		c = wl_cursor_theme_get_cursor(w.cursor_theme,
-		                               h && h->mouse ? "left_ptr" : "xterm");
+		c = wl_cursor_theme_get_cursor(w.cursor_theme, old);
 	struct wl_buffer *b = c ? wl_cursor_image_get_buffer(c->images[0]) : NULL;
 	if (!b)
 		return;
@@ -730,6 +745,7 @@ static void ptr_enter(void *data, struct wl_pointer *p, uint32_t serial,
 	w.px = wl_fixed_to_double(x), w.py = wl_fixed_to_double(y);
 	w.cursor_now = NULL;
 	set_cursor();
+	update_hover();
 }
 
 static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
@@ -737,6 +753,7 @@ static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
 	(void)data, (void)p, (void)serial, (void)s;
 	w.enter_serial = 0;
 	w.held = MB_NONE;
+	update_hover();
 }
 
 static int cell_index(void) {
@@ -747,6 +764,51 @@ static int cell_index(void) {
 	int col = e.col < cols ? e.col : cols - 1;
 	int row = e.row < rows ? e.row : rows - 1;
 	return row * cols + col;
+}
+
+static void update_hover(void) {
+	struct view v;
+	int kind = LINK_NONE, from = 0, to = 0, id = 0;
+	if (w.enter_serial && (kbd_mods(&w.kbd) & MOD_CTRL) && view_of(&v) == 0)
+		kind = link_at(&v, cell_index(), &from, &to, &id, w.link_url);
+	if (kind != w.link_kind || from != w.link_from || to != w.link_to) {
+		w.link_kind = kind, w.link_from = from, w.link_to = to;
+		w.link_id = id;
+		w.full = 1;
+		set_cursor();
+	}
+}
+
+static void open_url(const char *url) {
+	if (!link_allowed(url)) {
+		fprintf(stderr, "frost: only http, https, ftp, file and mailto links "
+		                "are opened\n");
+		return;
+	}
+	const char *b = getenv("BROWSER");
+	if (!b || !*b)
+		b = "caribou";
+	pid_t p = fork();
+	if (p == 0) {
+		if (fork() == 0) {
+			setsid();
+			execlp(b, b, url, (char *)NULL);
+			fprintf(stderr, "frost: cannot run %s\n", b);
+			_exit(127);
+		}
+		_exit(0);
+	}
+	if (p > 0)
+		waitpid(p, NULL, 0);
+}
+
+static void open_link(void) {
+	if (w.link_kind == LINK_BARE) {
+		open_url(w.link_url);
+	} else if (w.link_kind == LINK_OSC8 && w.sock >= 0) {
+		uint16_t id = (uint16_t)w.link_id;
+		msg_send(w.sock, MSG_LINK_ASK, &id, sizeof(id), -1);
+	}
 }
 
 static void select_press(uint32_t time) {
@@ -773,6 +835,7 @@ static void ptr_motion(void *data, struct wl_pointer *p, uint32_t time,
 	(void)data, (void)p, (void)time;
 	w.px = wl_fixed_to_double(x), w.py = wl_fixed_to_double(y);
 	set_cursor();
+	update_hover();
 	if (w.selecting) {
 		int pos = cell_index();
 		if (pos != w.sel_head) {
@@ -815,6 +878,14 @@ static void ptr_button(void *data, struct wl_pointer *p, uint32_t serial,
 	int b = button_of(button);
 	if (b < 0)
 		return;
+	if (b == MB_LEFT &&
+	    (w.link_click ||
+	     (w.link_kind && state == WL_POINTER_BUTTON_STATE_PRESSED))) {
+		w.link_click = state == WL_POINTER_BUTTON_STATE_PRESSED;
+		if (w.link_click)
+			open_link();
+		return;
+	}
 	if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
 		w.serial = serial;
 		w.held = b;
@@ -1070,6 +1141,10 @@ static void from_term(void) {
 			free(text);
 		break;
 	}
+	case MSG_LINK:
+		w.msg[n] = 0;
+		open_url(w.msg);
+		break;
 	case MSG_TITLE:
 		w.msg[n] = 0;
 		xdg_toplevel_set_title(w.top, w.msg);
