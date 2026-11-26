@@ -49,6 +49,7 @@ struct tab {
 	size_t map_size;
 	uint32_t seq;
 	int damage, closing, marked;
+	unsigned number;
 	char title[TERM_TITLE_MAX], name[TERM_NAME_MAX];
 };
 
@@ -1242,60 +1243,130 @@ static void say(int error, const char *fmt, ...) {
 	w.line_error = error;
 }
 
-static int by_number(const void *a, const void *b) {
-	return (int)(*(const unsigned *)a - *(const unsigned *)b);
+static int dial_terminal(unsigned number) {
+	const char *rt = getenv("XDG_RUNTIME_DIR");
+	struct sockaddr_un a = {.sun_family = AF_UNIX};
+	if (!rt || snprintf(a.sun_path, sizeof(a.sun_path), "%s/frost/%u", rt,
+	                    number) >= (int)sizeof(a.sun_path))
+		return -1;
+	int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+	if (fd >= 0 && connect(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
+		close(fd);
+		return -1;
+	}
+	return fd;
 }
 
-static void list_terminals(void) {
+static int by_number(const void *a, const void *b) {
+	const struct msg_info *x = a, *y = b;
+	return x->number < y->number ? -1 : x->number > y->number;
+}
+
+static int scan_terminals(struct msg_info *out, int max) {
 	const char *rt = getenv("XDG_RUNTIME_DIR");
 	char dir[PATH_MAX];
-	unsigned nums[256];
 	int n = 0;
 	snprintf(dir, sizeof(dir), "%s/frost", rt ? rt : "");
 	DIR *d = rt ? opendir(dir) : NULL;
 	struct dirent *e;
-	while (d && (e = readdir(d)) && n < 256) {
+	while (d && (e = readdir(d)) && n < max) {
 		char *end;
 		unsigned long v = strtoul(e->d_name, &end, 10);
-		if (*e->d_name && !*end && v > 0 && v < 100000)
-			nums[n++] = (unsigned)v;
-	}
-	if (d)
-		closedir(d);
-	qsort(nums, (size_t)n, sizeof(nums[0]), by_number);
-	char out[sizeof(w.line_msg)] = "";
-	size_t o = 0;
-	for (int i = 0; i < n; i++) {
-		struct sockaddr_un a = {.sun_family = AF_UNIX};
-		if (snprintf(a.sun_path, sizeof(a.sun_path), "%s/%u", dir, nums[i]) >=
-		    (int)sizeof(a.sun_path))
+		if (!*e->d_name || *end || !v || v > 99999)
 			continue;
-		int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+		int fd = dial_terminal((unsigned)v);
 		struct timeval tv = {0, 300000};
-		struct msg_info in;
 		uint32_t type;
 		int got;
 		if (fd < 0)
 			continue;
 		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-		if (connect(fd, (struct sockaddr *)&a, sizeof(a)) == 0 &&
-		    msg_send(fd, MSG_QUERY, NULL, 0, -1) == 0 &&
-		    msg_recv(fd, &type, &in, sizeof(in), &got) == sizeof(in) &&
+		if (msg_send(fd, MSG_QUERY, NULL, 0, -1) == 0 &&
+		    msg_recv(fd, &type, &out[n], sizeof(out[n]), &got) ==
+		        sizeof(out[n]) &&
 		    type == MSG_INFO) {
-			in.name[sizeof(in.name) - 1] = 0;
-			const char *where = in.attached ? "" : " detached";
-			int w2 =
-			    snprintf(out + o, sizeof(out) - o, "%s%u%s%s%s", o ? "  " : "",
-			             in.number, in.name[0] ? " " : "", in.name, where);
-			if (w2 > 0 && (size_t)w2 < sizeof(out) - o)
-				o += (size_t)w2;
+			out[n].name[sizeof(out[n].name) - 1] = 0;
+			out[n].title[sizeof(out[n].title) - 1] = 0;
+			n++;
 		}
 		close(fd);
+	}
+	if (d)
+		closedir(d);
+	qsort(out, (size_t)n, sizeof(*out), by_number);
+	return n;
+}
+
+static void list_terminals(void) {
+	static struct msg_info all[256];
+	int n = scan_terminals(all, 256);
+	char out[sizeof(w.line_msg)] = "";
+	size_t o = 0;
+	for (int i = 0; i < n; i++) {
+		int k = snprintf(out + o, sizeof(out) - o, "%s%u%s%s%s", o ? "  " : "",
+		                 all[i].number, all[i].name[0] ? " " : "", all[i].name,
+		                 all[i].attached ? "" : " detached");
+		if (k > 0 && (size_t)k < sizeof(out) - o)
+			o += (size_t)k;
 	}
 	if (o)
 		say(0, "%s", out);
 	else
 		say(0, "no terminals");
+}
+
+static int detach_tab(const char *name) {
+	if (*name) {
+		static struct msg_info all[256];
+		int n = scan_terminals(all, 256);
+		if (strlen(name) >= TERM_NAME_MAX) {
+			say(1, "a name has at most %d letters", TERM_NAME_MAX - 1);
+			return -1;
+		}
+		for (int i = 0; i < n; i++)
+			if (!strcmp(all[i].name, name) && all[i].number != T.number) {
+				say(1, "%s is the name of terminal %u", name, all[i].number);
+				return -1;
+			}
+		msg_send(T.sock, MSG_NAME, name, strlen(name), -1);
+	}
+	msg_send(T.sock, MSG_DETACH, NULL, 0, -1);
+	drop_tab(w.cur, 0);
+	return 0;
+}
+
+static int attach_tab(const char *arg, int number) {
+	unsigned num = number > 0 ? (unsigned)number : 0;
+	if (!num) {
+		static struct msg_info all[256];
+		int n = scan_terminals(all, 256);
+		for (int i = 0; i < n && !num; i++)
+			if (!strcmp(all[i].name, arg))
+				num = all[i].number;
+	}
+	for (int i = 0; i < w.ntabs && num; i++)
+		if (w.tabs[i].number == num) {
+			switch_tab(i);
+			return 0;
+		}
+	int fd = num && w.ntabs < TABS_MAX ? dial_terminal(num) : -1;
+	if (fd < 0) {
+		say(1, "no terminal %s", arg);
+		return -1;
+	}
+	int rows = w.rows > 1 ? w.rows - 1 : w.rows;
+	struct msg_resize rs = {(uint16_t)w.cols, (uint16_t)rows, (uint16_t)w.r.cw,
+	                        (uint16_t)w.r.ch};
+	msg_send(fd, MSG_ATTACH, &rs, sizeof(rs), -1);
+	struct tab *t = &w.tabs[w.ntabs];
+	*t = (struct tab){0};
+	t->sock = fd;
+	t->number = num;
+	w.cur = w.ntabs++;
+	if (w.ntabs == 2)
+		resize_all();
+	switch_tab(w.cur);
+	return 0;
 }
 
 static int set_size(int size) {
@@ -1348,9 +1419,15 @@ static void run_line(void) {
 		line_toggle(0);
 		return;
 	case CMD_ATTACH:
+		if (attach_tab(c.arg, c.number) < 0)
+			break;
+		line_toggle(0);
+		return;
 	case CMD_DETACH:
-		say(1, "attach and detach are not here yet");
-		break;
+		if (detach_tab(c.arg) < 0)
+			break;
+		line_toggle(0);
+		return;
 	case CMD_BAD:
 		say(1, "orders: N, goto N, new, ls, size N, attach, detach");
 		break;
@@ -1443,9 +1520,19 @@ static void from_term(int i) {
 		if ((size_t)n == sizeof(struct msg_info)) {
 			struct msg_info *in = (struct msg_info *)w.msg;
 			in->name[sizeof(in->name) - 1] = 0;
+			in->title[sizeof(in->title) - 1] = 0;
+			t->number = in->number;
 			snprintf(t->name, sizeof(t->name), "%s", in->name);
+			if (in->title[0])
+				snprintf(t->title, sizeof(t->title), "%s", in->title);
+			w.full |= line_shown();
 		}
 		break;
+	case MSG_BUSY:
+		say(1, "terminal %u has a window", t->number);
+		w.line_open = 1;
+		drop_tab(i, 0);
+		return;
 	case MSG_TITLE:
 		w.msg[n] = 0;
 		cut_copy(t->title, sizeof(t->title), w.msg);

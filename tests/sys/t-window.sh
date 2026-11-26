@@ -78,6 +78,39 @@ chord() {
 	done
 }
 
+type_text() {
+	for k in $(printf '%s' "$1" | awk '
+		BEGIN {
+			s = "abcdefghijklmnopqrstuvwxyz"
+			split("30 48 46 32 18 33 34 35 23 36 37 38 50 49 24 25 16 19 " \
+			      "31 20 22 47 17 45 21 44", c, " ")
+		}
+		{
+			for (i = 1; i <= length($0); i++) {
+				ch = substr($0, i, 1)
+				if (ch == " ")
+					print 57
+				else if (ch ~ /[0-9]/)
+					print (ch == "0" ? 11 : ch + 1)
+				else
+					print c[index(s, ch)]
+			}
+		}'); do
+		chord $k
+	done
+}
+
+line_order() {
+	chord 29 42 57
+	type_text "$1"
+	chord 28
+	sleep 0.4
+}
+
+state_of() {
+	$client ls "$WORK/frost" | awk -v n="$1" '$2 == n { print $3 }'
+}
+
 wait_file() {
 	i=0
 	until [ -e "$1" ]; do
@@ -332,6 +365,26 @@ check "$(cat "$WORK/tabs")" "x" \
 chord 125 14
 wait_end $win
 check "$?" 0 "closing the window ends the program of every tab"
+
+reader keep "" "head -c 1"
+line_order "new"
+line_order "detach work"
+check "$(state_of work)" "detached" "detach takes a tab out, with its name"
+line_order "attach work"
+check "$(state_of work)" "attached" "attach brings it back by its name"
+chord 125 14
+wait_end $win
+check "$?" 0 "and the window closes them both"
+
+$frost --app-id solo sh -c 'sleep 30' &
+solo=$!
+wait_window solo
+sleep 0.3
+line_order "detach solo"
+wait_end $solo
+check "$?:$(state_of solo)" "0:detached" \
+	"detaching the last tab closes the window and keeps its terminal"
+close_detached
 
 FROST_TEST_DUMP=$WORK/back.png $frost --app-id back sh -c \
 	'echo B; for i in $(seq 100); do echo A; done; sleep 1.5' &
