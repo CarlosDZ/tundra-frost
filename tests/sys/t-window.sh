@@ -468,6 +468,10 @@ check "$(cat "$WORK/inside")" "%0 $(realpath build/bin)/tmux" \
 check "$($tmux -V)" "tmux 3.4" "the tmux of frost says the version it answers as"
 check "$(on_tmux display-message -p '#{pane_id} #{window_id} #{session_name}')" \
 	"%0 @0 frost" "display-message answers with the pane, its tab and the session"
+asks='#{client_termtype} #{allow-passthrough} #{focus-events}'
+asks="$asks #{status} #{status-position} #{window_bigger}"
+check "$(on_tmux display-message -p "$asks")" "frost off on off bottom 0" \
+	"and with what Claude Code asks before it shows a picture"
 check "$(on_tmux split-window -t %0 -h -l 70% -P -F '#{pane_id}' -- \
 	"stty raw -echo; : >$WORK/right.ready; head -c 1 >$WORK/right; sleep 30")" \
 	"%1" "split-window opens a pane beside it and says its id"

@@ -49,8 +49,16 @@ static const char *var(void *ctx, const char *name) {
 		return "$0";
 	if (!strcmp(name, "version"))
 		return TMUX_VERSION;
-	if (!strcmp(name, "client_control_mode"))
-		return "0";
+	static const char *const fixed[][2] = {{"client_control_mode", "0"},
+	                                       {"client_termtype", "frost"},
+	                                       {"allow-passthrough", "off"},
+	                                       {"focus-events", "on"},
+	                                       {"status", "off"},
+	                                       {"status-position", "bottom"},
+	                                       {"window_bigger", "0"}};
+	for (size_t k = 0; k < sizeof(fixed) / sizeof(fixed[0]); k++)
+		if (!strcmp(name, fixed[k][0]))
+			return fixed[k][1];
 	if (f->pane < 0 || f->pane >= w.npanes)
 		return NULL;
 	const struct pane *t = &w.panes[f->pane];
