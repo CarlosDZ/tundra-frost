@@ -28,6 +28,7 @@ struct render {
 	int ox, oy;
 	int width, height;
 	int clip_cols;
+	int cursor;
 	uint32_t theme[PAL_SLOTS];
 	uint32_t selection;
 };

@@ -18,6 +18,23 @@ when its window detaches or falls. Once its program runs, frost-term locks
 itself in seccomp: its pty, its sockets, its shared memory and the hang-up of
 its program are all it keeps.
 
+## Configuration
+
+`/etc/tundra/frost`, then `~/.config/tundra/frost` (`$XDG_CONFIG_HOME/tundra/frost`
+if it is set), each key over the one before. A file with an error is ignored,
+and frost says so.
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `size` | Size of the letters, 6 to 128 | `24` |
+| `history` | MB of history of each terminal, 1 to 1024 | `32` |
+| `cursor` | `line`, `block` or `underline`, while the program asks for no other | `line` |
+| `blink` | `yes` or `no`, for that cursor | `yes` |
+
+The colours come from the theme, `frost.` keys before the common ones, and the
+letters from the `mono` fonts, both through tundra-libdraw. `size N` in the
+frost line changes the size of a window while it is open.
+
 ## Terminal type and ssh
 
 frost says `TERM=frost`, with its terminfo in `/usr/share/terminfo`. Over ssh,
@@ -33,6 +50,7 @@ host with a `SetEnv` of its own needs `TERM=xterm-256color` in it.
   wayland-protocols. Dead keys take the compose table of the locale, from the
   X11 locale data.
 - tic, of ncurses, to build the terminfo.
+- tundra-libconf, which reads the configuration.
 - tundra-libdraw, which paints the screen and reads the fonts and the theme.
   Built checkouts of tundra-libconf, tundra-libtoa and tundra-libdraw next to
   this one, or where `CONF_DEV`, `TOA_DEV` and `DRAW_DEV` say, are used

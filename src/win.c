@@ -34,8 +34,8 @@
 #include "winint.h"
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
+#include <tundra/conf.h>
 
-#define FONT_SIZE 24
 #define BLINK_MS 500
 #define DEFAULT_COLS 80
 #define DEFAULT_ROWS 24
@@ -228,6 +228,8 @@ static int view_of(const struct pane *t, struct view *v) {
 	                   0,
 	                   0,
 	                   0};
+	if (h->cursor_shape == CURSOR_DEFAULT)
+		v->cursor_blink = w.cfg.blink;
 	if (t == &T && w.sel_on)
 		select_span(v, w.sel_anchor, w.sel_head, w.sel_mode, &v->sel_from,
 		            &v->sel_to);
@@ -1375,6 +1377,7 @@ static int set_size(int size) {
 		return -1;
 	render_free(&w.r);
 	w.r = r;
+	w.r.cursor = (int)w.cfg.cursor;
 	render_theme(&w.r, w.theme);
 	render_fit(&w.r, w.bw, w.bh, &w.cols, &w.rows);
 	relayout();
@@ -1666,14 +1669,54 @@ static void loop(const struct cli *c) {
 	}
 }
 
+static long read_config(const char *path, char *text, size_t max) {
+	int fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) {
+		if (errno != ENOENT)
+			fprintf(stderr, "frost: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+	size_t len = 0;
+	ssize_t k;
+	while (len <= max && (k = read(fd, text + len, max + 1 - len)) > 0)
+		len += (size_t)k;
+	close(fd);
+	if (len > max) {
+		fprintf(stderr, "frost: %s: bigger than %zu bytes, ignored\n", path,
+		        max);
+		return -1;
+	}
+	return (long)len;
+}
+
+static void load_config(void) {
+	static char text[TCONF_LINE_MAX * 64];
+	char user[PATH_MAX], err[CONFIG_ERR_MAX];
+	const char *base = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+	const char *paths[2] = {TUNDRA_FROST_SYSCONF, NULL};
+	if (base && *base)
+		snprintf(user, sizeof(user), "%s/tundra/frost", base), paths[1] = user;
+	else if (home && *home)
+		snprintf(user, sizeof(user), "%s/.config/tundra/frost", home),
+		    paths[1] = user;
+	config_default(&w.cfg);
+	for (int i = 0; i < 2; i++) {
+		long n = paths[i] ? read_config(paths[i], text, sizeof(text) - 1) : -1;
+		if (n >= 0 && config_parse(text, (size_t)n, &w.cfg, err) < 0)
+			fprintf(stderr, "frost: %s: %s, ignored\n", paths[i], err);
+	}
+}
+
 int win_run(const struct cli *c) {
 	for (int i = 0; i < PANES_MAX; i++)
 		w.panes[i].sock = -1;
 	w.paste_fd = w.ctl = -1;
 	w.status = 1;
 	signal(SIGPIPE, SIG_IGN);
-	if (render_init(&w.r, FONT_SIZE) < 0)
+	load_config();
+	if (render_init(&w.r, w.cfg.size) < 0)
 		return 1;
+	w.r.cursor = (int)w.cfg.cursor;
 	w.theme = tdraw_theme_open();
 	const char *err;
 	if (w.theme && tdraw_theme_load(w.theme, &err) == -2)

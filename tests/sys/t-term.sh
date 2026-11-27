@@ -30,6 +30,9 @@ check "$($client $term 20 3 -r 10 4 -- sh -c 'sleep 0.3; stty size' | head -1)" 
 check "$($client $term 20 3 -- sh -c 'printf %s "$TERM"' | head -1)" "|frost" \
 	"TERM is frost"
 
+check "$($term -h 0 3 20 3 2>/dev/null; echo "$?")" "2" \
+	"a history of 0 MB is a usage error"
+
 check "$($client $term 30 3 -- sh -c 'printf "\033]2;t\303\255tulo\007"' | head -1)" \
 	"title título" "the title reaches the window"
 

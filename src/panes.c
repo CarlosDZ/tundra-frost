@@ -197,13 +197,15 @@ static int spawn(struct pane *t, char **argv, const char *cwd) {
 		int n = 0;
 		while (argv && argv[n])
 			n++;
-		char **args = calloc((size_t)n + 5, sizeof(*args));
+		char history[16];
+		snprintf(history, sizeof(history), "%d", w.cfg.history);
+		char **args = calloc((size_t)n + 7, sizeof(*args));
 		if (!args)
 			_exit(127);
-		args[0] = (char *)path, args[1] = "3";
-		args[2] = cols, args[3] = rows;
+		args[0] = (char *)path, args[1] = "-h", args[2] = history;
+		args[3] = "3", args[4] = cols, args[5] = rows;
 		for (int i = 0; i < n; i++)
-			args[4 + i] = argv[i];
+			args[6 + i] = argv[i];
 		execv(path, args);
 		fprintf(stderr, "frost: cannot run %s\n", path);
 		_exit(127);

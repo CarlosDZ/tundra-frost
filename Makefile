@@ -6,18 +6,19 @@ VERSION = $(shell grep '^version=' metapkg | cut -d= -f2)
 TUNDRA_STD  = -std=c11
 TUNDRA_DEFS = -D_GNU_SOURCE -DTUNDRA_FROST_VERSION=\"$(VERSION)\" \
               -DTUNDRA_FROST_TERM=\"$(PREFIX)/libexec/frost-term\" \
-              -DTUNDRA_FROST_BIN=\"$(PREFIX)/libexec/frost/bin\"
+              -DTUNDRA_FROST_BIN=\"$(PREFIX)/libexec/frost/bin\" \
+              -DTUNDRA_FROST_SYSCONF=\"$(SYSCONFDIR)/tundra/frost\"
 TUNDRA_INC  = -Isrc -I$(PROTO)
 TUNDRA_TERM_LIBS = -lseccomp
 TUNDRA_WL_PKGS = wayland-client wayland-cursor xkbcommon
 TUNDRA_WL_CFLAGS = $(shell $(PKG_CONFIG) --cflags $(TUNDRA_WL_PKGS))
-TUNDRA_LIBS = -ltundra-draw $(shell $(PKG_CONFIG) --libs $(TUNDRA_WL_PKGS))
+TUNDRA_LIBS = -ltundra-draw -ltundra-conf $(shell $(PKG_CONFIG) --libs $(TUNDRA_WL_PKGS))
 
 CONF_DEV ?= $(wildcard ../tundra-libconf)
 DRAW_DEV ?= $(wildcard ../tundra-libdraw)
 TOA_DEV ?= $(wildcard ../tundra-libtoa)
 DEV_BUILDS   = $(foreach d,$(CONF_DEV) $(DRAW_DEV) $(TOA_DEV),$(abspath $(d))/build)
-TUNDRA_INC  += $(foreach d,$(DRAW_DEV),-I$(d)/include)
+TUNDRA_INC  += $(foreach d,$(CONF_DEV) $(DRAW_DEV),-I$(d)/include)
 TUNDRA_LIBS := $(DEV_BUILDS:%=-L%) $(DEV_BUILDS:%=-Wl,-rpath-link,%) \
                $(TUNDRA_LIBS)
 TEST_RPATH   = $(DEV_BUILDS:%=-Wl,-rpath,%)
@@ -39,7 +40,7 @@ DEPS = $(OBJS:.o=.d)
 
 WIN_SRCS  = src/main.c src/win.c src/render.c src/keys.c src/kbd.c \
             src/mouse.c src/paste.c src/select.c src/links.c src/line.c \
-            src/panes.c src/mosaic.c src/tmuxcmd.c src/tmuxsrv.c
+            src/panes.c src/mosaic.c src/tmuxcmd.c src/tmuxsrv.c src/config.c
 TERM_SRCS = src/term.c src/sandbox.c
 
 PROTO = $(BUILD)/protocols

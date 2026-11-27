@@ -315,8 +315,9 @@ void render_cursor(struct render *r, struct tdraw_canvas *c,
 	int px = r->ox + x * r->cw, py = r->oy + y * r->ch;
 	int t = r->ch / 16 > 0 ? r->ch / 16 : 1;
 	uint32_t color = slot(r, v, PAL_CURSOR);
-	int shape =
-	    v->cursor_shape == CURSOR_DEFAULT ? CURSOR_BAR : v->cursor_shape;
+	int shape = v->cursor_shape != CURSOR_DEFAULT ? (int)v->cursor_shape
+	            : r->cursor                       ? r->cursor
+	                                              : CURSOR_BAR;
 
 	switch (shape) {
 	case CURSOR_BLOCK:

@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <wayland-client.h>
 
+#include "config.h"
 #include "kbd.h"
 #include "line.h"
 #include "links.h"
@@ -129,6 +130,7 @@ struct win {
 	int line_open, line_error;
 	char line_input[LINE_INPUT_MAX], line_msg[256];
 
+	struct config cfg;
 	struct render r;
 	struct tdraw_theme *theme;
 	int blink, blinking, lit, tick;

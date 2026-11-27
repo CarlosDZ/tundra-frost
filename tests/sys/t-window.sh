@@ -230,6 +230,25 @@ check "$("$picture" pixel "$WORK/theme.png" 0 0)" "ff203040" \
 	"a new theme repaints the window"
 theme 101418
 
+printf 'size = 12\n' >"$XDG_CONFIG_HOME/tundra/frost"
+$frost --app-id small sh -c "sleep 0.5; stty size >$WORK/small; sleep 1" &
+win=$!
+wait_window small
+small=$(windows | awk '$3 == "small" { print int($9 / 12), int($8 / 8) }')
+wait_end $win
+check "$(cat "$WORK/small")" "$small" \
+	"size in ~/.config/tundra/frost sets the size of the letters"
+printf 'size = huge\n' >"$XDG_CONFIG_HOME/tundra/frost"
+$frost --app-id badcfg sh -c "sleep 0.5; stty size >$WORK/badcfg; sleep 1" \
+	2>"$WORK/badcfg.err" &
+win=$!
+wait_window badcfg
+grid=$(grid_of badcfg)
+wait_end $win
+check "$(grep -c 'ignored' "$WORK/badcfg.err"):$(cat "$WORK/badcfg")" "1:$grid" \
+	"a config file with a bad value is ignored, and frost says so"
+rm -f "$XDG_CONFIG_HOME/tundra/frost"
+
 frames() {
 	awk '/^frames, count / { n = $NF } END { print n + 0 }' "$WORK/log.idle"
 }

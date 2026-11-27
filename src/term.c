@@ -508,7 +508,8 @@ static void accept_one(void) {
 }
 
 static int usage(void) {
-	fprintf(stderr, "usage: frost-term fd cols rows [program [argument...]]\n");
+	fprintf(stderr, "usage: frost-term [-h MB] fd cols rows [program "
+	                "[argument...]]\n");
 	return 2;
 }
 
@@ -519,6 +520,14 @@ static int number(const char *s, int lo, int hi) {
 }
 
 int main(int argc, char **argv) {
+	size_t history = HISTORY_BYTES;
+	if (argc > 2 && !strcmp(argv[1], "-h")) {
+		int mb = number(argv[2], 1, 1024);
+		if (mb < 0)
+			return usage();
+		history = (size_t)mb << 20;
+		argc -= 2, argv += 2;
+	}
 	if (argc < 4)
 		return usage();
 	t.win = number(argv[1], 0, 1 << 20);
@@ -549,8 +558,8 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	if (hist_init(&t.hist, HISTORY_BYTES) < 0 ||
-	    scr_init(&t.scr, cols, rows) < 0 || shm_make(cols, rows) < 0) {
+	if (hist_init(&t.hist, history) < 0 || scr_init(&t.scr, cols, rows) < 0 ||
+	    shm_make(cols, rows) < 0) {
 		fprintf(stderr, "frost-term: cannot make the screen\n");
 		return 1;
 	}
