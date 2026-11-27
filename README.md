@@ -18,6 +18,45 @@ when its window detaches or falls. Once its program runs, frost-term locks
 itself in seccomp: its pty, its sockets, its shared memory and the hang-up of
 its program are all it keeps.
 
+## Keys and the pointer
+
+Keys reach a program as xterm sends them, or with the keyboard protocol of
+kitty when it asks for it.
+
+| What | Does |
+|------|------|
+| Ctrl + Shift + C, V | Copy the selection, paste the clipboard. A paste loses its control characters, and goes bracketed when the program asks |
+| Ctrl + Shift + Space | Opens and closes the frost line |
+| Click and drag | One click selects letters, two words, three lines. The selection is the primary one, and the middle button pastes it. With a program that takes the pointer, Shift gives it back to frost |
+| Ctrl + click | Opens the link under the pointer, of OSC 8 or written, if it is http, https, ftp, file or mailto, with `$BROWSER` or else `caribou` |
+| Wheel or touchpad | Goes back in the history. In the alternate screen, the arrows, when the program asks |
+
+## The frost line
+
+The last row shows the tabs with their number and name, the current one, and a
+`!` on those with a bell or a notice. It is there with two tabs or more, and
+while it is open.
+
+| Order | Does |
+|-------|------|
+| `N`, `goto N` | Shows tab N |
+| `new` | Opens a tab in the directory of the one shown (OSC 7) |
+| `ls` | Lists the terminals of the user, with or without a window |
+| `detach [name]` | Leaves the terminal running without a window, with that name |
+| `attach N`, `attach name` | Brings a terminal into a new tab |
+| `size N` | Changes the size of the letters of the window |
+
+## tmux adapter
+
+Inside frost, `TMUX` and `TMUX_PANE` are set and `tmux` is the adapter of frost,
+`/usr/libexec/frost/bin/tmux`, first in `PATH`: programs like Claude Code open
+their panes as a mosaic in the tab. It answers `display-message`,
+`list-panes`, `split-window`, `kill-pane`, `select-pane`, `select-layout`
+(`main-vertical`, `tiled`, `even-horizontal`, `even-vertical`),
+`resize-pane -x`, `respawn-pane`, `set-option` and `show-options`, and the
+rest fails with a message. A pane takes the keyboard with a click. A tmux on
+another machine, over ssh, is not touched.
+
 ## Configuration
 
 `/etc/tundra/frost`, then `~/.config/tundra/frost` (`$XDG_CONFIG_HOME/tundra/frost`

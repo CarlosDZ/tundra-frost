@@ -5,9 +5,10 @@ revision=0
 depends="libseccomp tundra-libconf>=0.1_0 tundra-libdraw>=0.5_0"
 build_style=gnu-makefile
 make_check_target=check-unit
-hostmakedepends="pkg-config wayland-devel"
+hostmakedepends="pkg-config wayland-devel ncurses"
 makedepends="libseccomp-devel tundra-libconf-devel tundra-libdraw-devel wayland-devel
  wayland-protocols libxkbcommon-devel"
+conf_files="/etc/ssh/ssh_config.d/frost.conf"
 short_desc="Terminal of Tundra OS"
 maintainer="Tundra OS <CarlosDZ@tundra>"
 license="GPL-3.0-or-later"
